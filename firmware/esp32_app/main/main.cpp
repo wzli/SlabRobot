@@ -27,19 +27,19 @@
 #define PIN_SDA 22
 #define PIN_CLK 21
 
-Quaternion q;           // [w, x, y, z]         quaternion container
-VectorFloat gravity;    // [x, y, z]            gravity vector
-float ypr[3];           // [yaw, pitch, roll]   yaw/pitch/roll container and gravity vector
-uint16_t packetSize = 42;    // expected DMP packet size (default is 42 bytes)
-uint16_t fifoCount;     // count of all bytes currently in FIFO
-uint8_t fifoBuffer[64]; // FIFO storage buffer
-uint8_t mpuIntStatus;   // holds actual interrupt status byte from MPU
+Quaternion q;              // [w, x, y, z]         quaternion container
+VectorFloat gravity;       // [x, y, z]            gravity vector
+float ypr[3];              // [yaw, pitch, roll]   yaw/pitch/roll container and gravity vector
+uint16_t packetSize = 42;  // expected DMP packet size (default is 42 bytes)
+uint16_t fifoCount;        // count of all bytes currently in FIFO
+uint8_t fifoBuffer[64];    // FIFO storage buffer
+uint8_t mpuIntStatus;      // holds actual interrupt status byte from MPU
 
-void task_initI2C(void *ignore) {
+void task_initI2C(void* ignore) {
     i2c_config_t conf;
     conf.mode = I2C_MODE_MASTER;
-    conf.sda_io_num = (gpio_num_t)PIN_SDA;
-    conf.scl_io_num = (gpio_num_t)PIN_CLK;
+    conf.sda_io_num = (gpio_num_t) PIN_SDA;
+    conf.scl_io_num = (gpio_num_t) PIN_CLK;
     conf.sda_pullup_en = GPIO_PULLUP_ENABLE;
     conf.scl_pullup_en = GPIO_PULLUP_ENABLE;
     conf.master.clk_speed = 400000;
@@ -48,7 +48,7 @@ void task_initI2C(void *ignore) {
     vTaskDelete(NULL);
 }
 
-void task_display(void*){
+void task_display(void*) {
     MPU6050 mpu = MPU6050();
     mpu.initialize();
     mpu.dmpInitialize();
@@ -61,7 +61,7 @@ void task_display(void*){
 
     mpu.setDMPEnabled(true);
 
-    while(1){
+    while (1) {
         mpuIntStatus = mpu.getIntStatus();
         // get current FIFO count
         fifoCount = mpu.getFIFOCount();
@@ -73,7 +73,8 @@ void task_display(void*){
             // otherwise, check for DMP data ready interrupt frequently)
         } else if (mpuIntStatus & 0x02) {
             // wait for correct available data length, should be a VERY short wait
-            while (fifoCount < packetSize) fifoCount = mpu.getFIFOCount();
+            while (fifoCount < packetSize)
+                fifoCount = mpu.getFIFOCount();
 
             // read a packet from FIFO
 
@@ -81,33 +82,29 @@ void task_display(void*){
             mpu.dmpGetQuaternion(&q, fifoBuffer);
             mpu.dmpGetGravity(&gravity, &q);
             mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
-            printf("YAW: %3.1f, ", ypr[0] * 180/M_PI);
-            printf("PITCH: %3.1f, ", ypr[1] * 180/M_PI);
-            printf("ROLL: %3.1f \n", ypr[2] * 180/M_PI);
+            printf("YAW: %3.1f, ", ypr[0] * 180 / M_PI);
+            printf("PITCH: %3.1f, ", ypr[1] * 180 / M_PI);
+            printf("ROLL: %3.1f \n", ypr[2] * 180 / M_PI);
         }
 
-        //Best result is to match with DMP refresh rate
+        // Best result is to match with DMP refresh rate
         // Its last value in components/MPU6050/MPU6050_6Axis_MotionApps20.h file line 310
         // Now its 0x13, which means DMP is refreshed with 10Hz rate
-        vTaskDelay(100/portTICK_PERIOD_MS);
+        vTaskDelay(100 / portTICK_PERIOD_MS);
     }
 
     vTaskDelete(NULL);
 }
 
-extern "C"
-{
+extern "C" {
 
-void app_main(void)
-{
+void app_main(void) {
     printf("Hello world!\n");
 
     /* Print chip information */
     esp_chip_info_t chip_info;
     esp_chip_info(&chip_info);
-    printf("This is %s chip with %d CPU core(s), WiFi%s%s, ",
-            CONFIG_IDF_TARGET,
-            chip_info.cores,
+    printf("This is %s chip with %d CPU core(s), WiFi%s%s, ", CONFIG_IDF_TARGET, chip_info.cores,
             (chip_info.features & CHIP_FEATURE_BT) ? "/BT" : "",
             (chip_info.features & CHIP_FEATURE_BLE) ? "/BLE" : "");
 
@@ -126,5 +123,4 @@ void app_main(void)
     fflush(stdout);
     esp_restart();
 }
-
 }
