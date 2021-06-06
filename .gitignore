@@ -4,4 +4,6 @@
 *.pyc
 *.pyo
 *.backup
+*.ci
+*.old
 build/

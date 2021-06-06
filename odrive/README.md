@@ -119,7 +119,7 @@ resistance_calib_max_voltage < 0.5 * vbus_voltage
 ```
 #### ILLEGAL_SENSOR_STATE
 It could be noise on the encoder lines that can be fixed by adding 47nF caps see [here](https://discourse.odriverobotics.com/t/encoder-error-error-illegal-hall-state/1047/7?u=madcowswe).
-Also it could be the hall states are not what the firmware expects because older versions have hall states hardcoded. This is the case with the BDUAV6384 motors. Update to latest devel branch to pull in the hall state detection routine to fix.
+Also it could be the hall states are not what the firmware expects because older versions have hall states hardcoded. This is the case with the BDUAV6384 motors. Update to `>= fw-v0.5.2` to pull in the hall state detection routine to fix.
 
 ## Common Commands
 

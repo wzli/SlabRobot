@@ -57,7 +57,7 @@ def stand():
         stand.init = False
 
     stand.iteration += 1
-    if stand.iteration < 250:
+    if stand.iteration < 200:
         return
 
     #p.setJointMotorControlArray(robot, legs, p.POSITION_CONTROL, targetPositions = [p.readUserDebugParameter(stand.front_leg), p.readUserDebugParameter(stand.back_leg)], positionGains = [0.01, 0.01])
