@@ -25,7 +25,7 @@
 #include "sdkconfig.h"
 
 #define PIN_SDA 22
-#define PIN_CLK 21
+#define PIN_CLK 23
 
 Quaternion q;              // [w, x, y, z]         quaternion container
 VectorFloat gravity;       // [x, y, z]            gravity vector
@@ -35,7 +35,7 @@ uint16_t fifoCount;        // count of all bytes currently in FIFO
 uint8_t fifoBuffer[64];    // FIFO storage buffer
 uint8_t mpuIntStatus;      // holds actual interrupt status byte from MPU
 
-void task_initI2C(void* ignore) {
+void task_initI2C() {
     i2c_config_t conf;
     conf.mode = I2C_MODE_MASTER;
     conf.sda_io_num = (gpio_num_t) PIN_SDA;
@@ -45,7 +45,6 @@ void task_initI2C(void* ignore) {
     conf.master.clk_speed = 400000;
     ESP_ERROR_CHECK(i2c_param_config(I2C_NUM_0, &conf));
     ESP_ERROR_CHECK(i2c_driver_install(I2C_NUM_0, I2C_MODE_MASTER, 0, 0, 0));
-    vTaskDelete(NULL);
 }
 
 void task_display(void*) {
@@ -92,8 +91,6 @@ void task_display(void*) {
         // Now its 0x13, which means DMP is refreshed with 10Hz rate
         vTaskDelay(100 / portTICK_PERIOD_MS);
     }
-
-    vTaskDelete(NULL);
 }
 
 extern "C" {
@@ -115,12 +112,8 @@ void app_main(void) {
 
     printf("Minimum free heap size: %d bytes\n", esp_get_minimum_free_heap_size());
 
-    for (int i = 10; i >= 0; i--) {
-        printf("Restarting in %d seconds...\n", i);
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
-    }
-    printf("Restarting now.\n");
-    fflush(stdout);
-    esp_restart();
+    
+    task_initI2C();
+    task_display(0);
 }
 }

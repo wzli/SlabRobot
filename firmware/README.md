@@ -1,5 +1,10 @@
 # Firmware Setup
 
+## ESP32-CAM
+***First check if VDD is connected to 5V or 3.3V***
+
+- can module already comes with 120ohm
+
 # ESP32
 Follow the getting started guide in
 [Official ESP-IDF Docs](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/) to setup firmware development enviorment. Alternatively
