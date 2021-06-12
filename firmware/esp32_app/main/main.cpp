@@ -14,15 +14,28 @@
 #include "esp_system.h"
 #include "esp_spi_flash.h"
 
+#include "sdkconfig.h"
+
 #include <driver/i2c.h>
 #include <esp_log.h>
 #include <esp_err.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
+#include <string.h>
 #include "MPU6050.h"
+static inline bool writeCustomDmpConfig(MPU6050* ctx, const uint8_t* config, uint16_t len) {
+    uint8_t custom_config[len];
+    memcpy(custom_config, config, len);
+    // Last byte determines DMP FIFO output frequency calculated as (200Hz / (1 + value)).
+    // Going faster than 100Hz (0x00=200Hz) tends to result in very noisy data.
+    custom_config[len - 1] = 1; // 100 Hz
+    return ctx->writeProgDMPConfigurationSet(custom_config, len);
+}
+#define writeProgDMPConfigurationSet(config, len) writeCustomDmpConfig(this, config, len)
 #include "MPU6050_6Axis_MotionApps20.h"
-#include "sdkconfig.h"
+
+
 
 #define PIN_SDA 22
 #define PIN_CLK 23
@@ -50,13 +63,15 @@ void task_initI2C() {
 void task_display(void*) {
     MPU6050 mpu = MPU6050();
     mpu.initialize();
+    //uint8_t* mod = (uint8_t*)dmpConfig + MPU6050_DMP_CONFIG_SIZE - 1;
+    //*mod = 1;
     mpu.dmpInitialize();
 
     // This need to be setup individually
-    mpu.setXGyroOffset(220);
-    mpu.setYGyroOffset(76);
-    mpu.setZGyroOffset(-85);
-    mpu.setZAccelOffset(1788);
+    // mpu.setXGyroOffset(0);
+    // mpu.setYGyroOffset(0);
+    // mpu.setZGyroOffset(0);
+    mpu.setZAccelOffset(1500);
 
     mpu.setDMPEnabled(true);
 
@@ -81,15 +96,21 @@ void task_display(void*) {
             mpu.dmpGetQuaternion(&q, fifoBuffer);
             mpu.dmpGetGravity(&gravity, &q);
             mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
-            printf("YAW: %3.1f, ", ypr[0] * 180 / M_PI);
-            printf("PITCH: %3.1f, ", ypr[1] * 180 / M_PI);
-            printf("ROLL: %3.1f \n", ypr[2] * 180 / M_PI);
+            //printf("YAW: %3.1f, ", ypr[0] * 180 / M_PI);
+            //printf("PITCH: %3.1f, ", ypr[1] * 180 / M_PI);
+            //printf("ROLL: %3.1f \n", ypr[2] * 180 / M_PI);
+            //printf("%f, %f, %f\n", ypr[0] * 180 / M_PI, ypr[1] * 180 / M_PI, ypr[2] * 180 / M_PI);
+            //printf("%f, %f, %f\n", gravity.x, gravity.y, gravity.z);
+
+            int16_t accel[3];
+            mpu.dmpGetAccel(accel, fifoBuffer);
+            printf("%d, %d, %d\n", accel[0], accel[1], accel[2]);
         }
 
         // Best result is to match with DMP refresh rate
         // Its last value in components/MPU6050/MPU6050_6Axis_MotionApps20.h file line 310
         // Now its 0x13, which means DMP is refreshed with 10Hz rate
-        vTaskDelay(100 / portTICK_PERIOD_MS);
+        vTaskDelay(10 / portTICK_PERIOD_MS);
     }
 }
 

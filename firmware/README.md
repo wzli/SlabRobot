@@ -1,7 +1,9 @@
 # Firmware Setup
 
-## ESP32-CAM
-***First check if VDD is connected to 5V or 3.3V***
+## Hardware
+### ESP32-CAM
+- ***First check if VDD is connected to 5V or 3.3V***
+- remove resistors to flash LED, its the one right below the voltage selectors
 
 - can module already comes with 120ohm
 
