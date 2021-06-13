@@ -1,3 +1,6 @@
 [submodule "submodules/i2cdevlib"]
 	path = submodules/i2cdevlib
 	url = https://github.com/jrowberg/i2cdevlib.git
+[submodule "submodules/mxgen"]
+	path = submodules/mxgen
+	url = https://github.com/wzli/mxgen.git
