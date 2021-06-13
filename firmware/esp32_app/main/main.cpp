@@ -45,39 +45,23 @@ void task_display(void*) {
     mpu.CalibrateGyro(6);
     mpu.setDMPEnabled(true);
 
-    //while(1) {
-    //    mpu.GetCurrentFIFOPacket(fifoBuffer, packetSize)
-    //}
+    TickType_t prev_wake_time = xTaskGetTickCount();
 
-    while (1) {
-        mpuIntStatus = mpu.getIntStatus();
-        // get current FIFO count
-        fifoCount = mpu.getFIFOCount();
-
-        if ((mpuIntStatus & 0x10) || fifoCount == 1024) {
-            // reset so we can continue cleanly
-            mpu.resetFIFO();
-
-            // otherwise, check for DMP data ready interrupt frequently)
-        } else if (mpuIntStatus & 0x02) {
-            // wait for correct available data length, should be a VERY short wait
-            while (fifoCount < mpu.dmpPacketSize)
-                fifoCount = mpu.getFIFOCount();
-
-            // read a packet from FIFO
-
-            mpu.getFIFOBytes(fifoBuffer, mpu.dmpPacketSize);
-            mpu.dmpProcessFIFOPacket(fifoBuffer);
-            char json[256];
-            ImuMsg_to_json((const ImuMsg*)fifoBuffer, json);
-            puts(json);
+    char json[256];
+    while(1) {
+        ImuMsg imu_msg;
+        for(int i = mpu.getFIFOCount() / mpu.dmpPacketSize; i > 0; --i) {
+            mpu.getFIFOBytes((uint8_t*)&imu_msg, sizeof(imu_msg));
         }
+        // TODO: handle when fifo is empty
+        mpu.dmpProcessFIFOPacket((uint8_t*)&imu_msg);
+        ImuMsg_to_json(&imu_msg, json);
+        puts(json);
 
-        // Best result is to match with DMP refresh rate
-        // Its last value in components/MPU6050/MPU6050_6Axis_MotionApps20.h file line 310
-        // Now its 0x13, which means DMP is refreshed with 10Hz rate
-        // vTaskDelay(1 / portTICK_PERIOD_MS);
+        // Best result is to match with DMP refresh rate 100Hz
+        vTaskDelayUntil(&prev_wake_time, 1);
     }
+
 }
 
 extern "C" {
