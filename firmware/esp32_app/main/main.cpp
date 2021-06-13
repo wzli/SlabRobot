@@ -13,25 +13,6 @@
 
 #include "msg_defs.h"
 
-
-static inline void swap_uint8(uint8_t* a, uint8_t* b) {
-    *a ^= *b;
-    *b ^= *a;
-    *a ^= *b;
-}
-
-void dmp_packet_reverse_endian(uint8_t* packet) {
-    for(int i = 0; i < 4; ++i) {
-        swap_uint8(packet, packet + 3);
-        swap_uint8(packet + 1, packet + 2);
-        packet += 4;
-    }
-    for(int i = 0; i < 6; ++i) {
-        swap_uint8(packet, packet + 1);
-        packet += 2;
-    }
-}
-
 #define PIN_SDA 22
 #define PIN_CLK 23
 
@@ -57,25 +38,10 @@ void task_initI2C() {
 void task_display(void*) {
     MPU6050 mpu = MPU6050();
     mpu.initialize();
-    //uint8_t* mod = (uint8_t*)dmpConfig + MPU6050_DMP_CONFIG_SIZE - 1;
-    //*mod = 1;
-    assert(!mpu.dmpInitialize());
-
-    // This need to be setup individually
-    // mpu.setXGyroOffset(0);
-    // mpu.setYGyroOffset(0);
-    // mpu.setZGyroOffset(0);
-    // mpu.setZAccelOffset(1500);
-
-/*
-    mpu.setXGyroOffset(51);
-    mpu.setYGyroOffset(8);
-    mpu.setZGyroOffset(21);
-    mpu.setXAccelOffset(1150);
-    mpu.setYAccelOffset(-50);
-    mpu.setZAccelOffset(1060);
-    */
-
+    mpu.dmpInitialize();
+    //mpu.setXAccelOffset(1150);
+    //mpu.setYAccelOffset(-50);
+    //mpu.setZAccelOffset(1060);
     mpu.CalibrateGyro(6);
     mpu.setDMPEnabled(true);
 
@@ -101,7 +67,7 @@ void task_display(void*) {
             // read a packet from FIFO
 
             mpu.getFIFOBytes(fifoBuffer, mpu.dmpPacketSize);
-            dmp_packet_reverse_endian(fifoBuffer);
+            mpu.dmpProcessFIFOPacket(fifoBuffer);
             char json[256];
             ImuMsg_to_json((const ImuMsg*)fifoBuffer, json);
             puts(json);

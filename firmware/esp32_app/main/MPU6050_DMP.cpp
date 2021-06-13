@@ -25,6 +25,26 @@
  |  16  17  18  19  20  21  22  23  24  25  26  27					|
  * ================================================================ */
 
+static inline void swap_uint8(uint8_t& a, uint8_t& b) {
+    a ^= b;
+    b ^= a;
+    a ^= b;
+}
+
+// flips endian of DMP FIFO packet
+uint8_t MPU6050::dmpProcessFIFOPacket(const uint8_t* packet) {
+    uint8_t* pkt = const_cast<uint8_t*>(packet);
+    for(int i = 0; i < 4; ++i) {
+        swap_uint8(pkt[0], pkt[3]);
+        swap_uint8(pkt[1], pkt[2]);
+        pkt += 4;
+    }
+    for(int i = 0; i < 6; ++i) {
+        swap_uint8(pkt[0], pkt[1]);
+        pkt += 2;
+    }
+    return 0;
+}
 
 // this block of memory gets written to the MPU on start-up, and it seems
 // to be volatile memory, so it has to be done each time (it only takes ~1
