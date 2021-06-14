@@ -2,15 +2,15 @@
 #include "mxgen.h"
 
 #define TYPEDEF_QuaternionF(X, _) \
-    X(float, qw, )         \
-    X(float, qx, )         \
-    X(float, qy, )         \
+    X(float, qw, )                \
+    X(float, qx, )                \
+    X(float, qy, )                \
     X(float, qz, )
 MXGEN(struct, QuaternionF)
 
 #define TYPEDEF_Vector3F(X, _) \
-    X(float, x, )             \
-    X(float, y, )             \
+    X(float, x, )              \
+    X(float, y, )              \
     X(float, z, )
 MXGEN(struct, Vector3F)
 

@@ -17,10 +17,10 @@
 typedef struct Imu Imu;
 
 typedef struct {
-  Imu* imu;
-  ImuMsg imu_msg;
-  char json[256];
-  TaskHandle_t control_task;
+    Imu* imu;
+    ImuMsg imu_msg;
+    char json[256];
+    TaskHandle_t control_task;
 } App;
 
 extern Imu* imu_create();
@@ -39,11 +39,11 @@ static void i2c_init() {
 }
 
 static void control_loop(void* pvParameters) {
-    App* app = (App*)pvParameters;
+    App* app = (App*) pvParameters;
     TickType_t prev_wake_time = xTaskGetTickCount();
-    while(1) {
+    while (1) {
         imu_read(app->imu, &app->imu_msg);
-        //ImuMsg_to_json(&app->imu_msg, app->json);
+        // ImuMsg_to_json(&app->imu_msg, app->json);
         Vector3F_to_json(&app->imu_msg.linear_acceleration, app->json);
         puts(app->json);
         // Match IMU DMP output rate of 100Hz
@@ -55,5 +55,5 @@ void app_main(void) {
     static App app;
     i2c_init();
     app.imu = imu_create();
-    xTaskCreatePinnedToCore(control_loop, "control_loop", 2048, &app, 9, &app.control_task, 1);  
+    xTaskCreatePinnedToCore(control_loop, "control_loop", 2048, &app, 9, &app.control_task, 1);
 }

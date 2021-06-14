@@ -1,7 +1,7 @@
 #include "I2Cdev.h"
 
 // MotionApps 2.0 DMP implementation, built using the MPU-6050EVB evaluation board
-#define MPU6050_INCLUDE_DMP_MOTIONAPPS20 // same definitions Should work with V6.12
+#define MPU6050_INCLUDE_DMP_MOTIONAPPS20  // same definitions Should work with V6.12
 #include "MPU6050.h"
 
 #define delay(ms) vTaskDelay(ms / portTICK_PERIOD_MS);
@@ -26,15 +26,16 @@
  * ================================================================ */
 
 struct DmpPacket {
+    // orientation
     int32_t qw;
     int32_t qx;
     int32_t qy;
     int32_t qz;
-
+    // accelerometer
     int16_t ax;
     int16_t ay;
     int16_t az;
-
+    // gyroscope
     int16_t gx;
     int16_t gy;
     int16_t gz;
@@ -48,16 +49,18 @@ static inline void swap_uint8(uint8_t& a, uint8_t& b) {
 
 // flips endian of DMP FIFO packet
 void swap_packet_endian(uint8_t* pkt) {
-    for(int i = 0; i < 4; ++i) {
+    for (int i = 0; i < 4; ++i) {
         swap_uint8(pkt[0], pkt[3]);
         swap_uint8(pkt[1], pkt[2]);
         pkt += 4;
     }
-    for(int i = 0; i < 6; ++i) {
+    for (int i = 0; i < 6; ++i) {
         swap_uint8(pkt[0], pkt[1]);
         pkt += 2;
     }
 }
+
+// clang-format off
 
 // this block of memory gets written to the MPU on start-up, and it seems
 // to be volatile memory, so it has to be done each time (it only takes ~1
@@ -305,6 +308,8 @@ uint8_t MPU6050::dmpInitialize() { // Lets get it over with fast Write everythin
 	return 0;
 }
 
+// clang-format on
+
 extern "C" {
 
 #include "msg_defs.h"
@@ -316,9 +321,9 @@ MPU6050* imu_create(int z_accel_offset) {
     }
     mpu->initialize();
     mpu->dmpInitialize();
-    //mpu->setXAccelOffset(0);
-    //mpu->setYAccelOffset(0);
-    //mpu->setZAccelOffset(1000);
+    // mpu->setXAccelOffset(0);
+    // mpu->setYAccelOffset(0);
+    // mpu->setZAccelOffset(1000);
     mpu->CalibrateGyro(6);
     mpu->setDMPEnabled(true);
     return mpu;
@@ -326,19 +331,19 @@ MPU6050* imu_create(int z_accel_offset) {
 
 bool imu_read(MPU6050* imu, ImuMsg* imu_msg) {
     // null check
-    if(!imu || !imu_msg) {
+    if (!imu || !imu_msg) {
         return false;
     }
     // check number of packets in FIFO
     int packet_count = imu->getFIFOCount() / sizeof(DmpPacket);
     // fetch most recent packet
     for (int i = 0; i < packet_count; ++i) {
-        imu->getFIFOBytes((uint8_t*)imu_msg, sizeof(DmpPacket));
+        imu->getFIFOBytes((uint8_t*) imu_msg, sizeof(DmpPacket));
     }
     // change from big endian to little endian format
-    swap_packet_endian((uint8_t*)imu_msg);
+    swap_packet_endian((uint8_t*) imu_msg);
     // convert to float message (in reverse order for inplace conversion)
-    const DmpPacket* dmp_packet = (const DmpPacket*)imu_msg;
+    const DmpPacket* dmp_packet = (const DmpPacket*) imu_msg;
     // full +-8192 range is +-2000deg/s, scale to (rad/s)
     imu_msg->angular_velocity.z = (float) dmp_packet->gz * 100 * M_PI / (18 << 14);
     imu_msg->angular_velocity.y = (float) dmp_packet->gy * 100 * M_PI / (18 << 14);
@@ -354,5 +359,4 @@ bool imu_read(MPU6050* imu, ImuMsg* imu_msg) {
     imu_msg->orientation.qw = (float) dmp_packet->qw / (1 << 30);
     return packet_count;
 }
-
 }
