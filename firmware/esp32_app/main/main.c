@@ -27,7 +27,7 @@ extern Imu* imu_create();
 extern bool imu_read(Imu* imu, ImuMsg* imu_msg);
 
 static void i2c_init() {
-    i2c_config_t conf;
+    i2c_config_t conf = {};
     conf.mode = I2C_MODE_MASTER;
     conf.sda_io_num = (gpio_num_t) PIN_SDA;
     conf.scl_io_num = (gpio_num_t) PIN_CLK;

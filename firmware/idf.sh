@@ -1,5 +1,5 @@
 #/bin/bash
-version=release-v4.2
+version=release-v4.3
 app=esp32_app
 docker run -it --rm --privileged -w /project/firmware/app \
 -v $PWD/$app:/project/firmware/app \

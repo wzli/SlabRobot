@@ -13,7 +13,7 @@ Follow the getting started guide in
 [ESP-IDF Docker](https://hub.docker.com/r/espressif/idf) provides everything preconfigured.
 
 ```bash
-docker pull espressif/idf:release-v4.2
+docker pull espressif/idf:release-v4.3
 ```
 
 ## Configure
