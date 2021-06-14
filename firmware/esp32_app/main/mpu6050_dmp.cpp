@@ -25,6 +25,21 @@
  |  16  17  18  19  20  21  22  23  24  25  26  27					|
  * ================================================================ */
 
+struct DmpPacket {
+    int32_t qw;
+    int32_t qx;
+    int32_t qy;
+    int32_t qz;
+
+    int16_t ax;
+    int16_t ay;
+    int16_t az;
+
+    int16_t gx;
+    int16_t gy;
+    int16_t gz;
+};
+
 static inline void swap_uint8(uint8_t& a, uint8_t& b) {
     a ^= b;
     b ^= a;
@@ -32,8 +47,7 @@ static inline void swap_uint8(uint8_t& a, uint8_t& b) {
 }
 
 // flips endian of DMP FIFO packet
-uint8_t MPU6050::dmpProcessFIFOPacket(const uint8_t* packet) {
-    uint8_t* pkt = const_cast<uint8_t*>(packet);
+void swap_packet_endian(uint8_t* pkt) {
     for(int i = 0; i < 4; ++i) {
         swap_uint8(pkt[0], pkt[3]);
         swap_uint8(pkt[1], pkt[2]);
@@ -43,7 +57,6 @@ uint8_t MPU6050::dmpProcessFIFOPacket(const uint8_t* packet) {
         swap_uint8(pkt[0], pkt[1]);
         pkt += 2;
     }
-    return 0;
 }
 
 // this block of memory gets written to the MPU on start-up, and it seems
@@ -290,4 +303,56 @@ uint8_t MPU6050::dmpInitialize() { // Lets get it over with fast Write everythin
 */
 	dmpPacketSize = 28;
 	return 0;
+}
+
+extern "C" {
+
+#include "msg_defs.h"
+
+MPU6050* imu_create(int z_accel_offset) {
+    auto mpu = new MPU6050();
+    if (!mpu) {
+        return 0;
+    }
+    mpu->initialize();
+    mpu->dmpInitialize();
+    //mpu->setXAccelOffset(0);
+    //mpu->setYAccelOffset(0);
+    //mpu->setZAccelOffset(1000);
+    mpu->CalibrateGyro(6);
+    mpu->setDMPEnabled(true);
+    return mpu;
+}
+
+bool imu_read(MPU6050* imu, ImuMsg* imu_msg) {
+    // null check
+    if(!imu || !imu_msg) {
+        return false;
+    }
+    // check number of packets in FIFO
+    int packet_count = imu->getFIFOCount() / sizeof(DmpPacket);
+    // fetch most recent packet
+    for (int i = 0; i < packet_count; ++i) {
+        imu->getFIFOBytes((uint8_t*)imu_msg, sizeof(DmpPacket));
+    }
+    // change from big endian to little endian format
+    swap_packet_endian((uint8_t*)imu_msg);
+    // convert to float message (in reverse order for inplace conversion)
+    const DmpPacket* dmp_packet = (const DmpPacket*)imu_msg;
+    // full +-8192 range is +-2000deg/s, scale to (rad/s)
+    imu_msg->angular_velocity.z = (float) dmp_packet->gz * 100 * M_PI / (18 << 14);
+    imu_msg->angular_velocity.y = (float) dmp_packet->gy * 100 * M_PI / (18 << 14);
+    imu_msg->angular_velocity.x = (float) dmp_packet->gx * 100 * M_PI / (18 << 14);
+    // full +-8192 range is +-2g, scale to (g)
+    imu_msg->linear_acceleration.z = (float) dmp_packet->az / (1 << 14);
+    imu_msg->linear_acceleration.y = (float) dmp_packet->ay / (1 << 14);
+    imu_msg->linear_acceleration.x = (float) dmp_packet->ax / (1 << 14);
+    // normalize full range to +-1
+    imu_msg->orientation.qz = (float) dmp_packet->qz / (1 << 30);
+    imu_msg->orientation.qy = (float) dmp_packet->qy / (1 << 30);
+    imu_msg->orientation.qx = (float) dmp_packet->qx / (1 << 30);
+    imu_msg->orientation.qw = (float) dmp_packet->qw / (1 << 30);
+    return packet_count;
+}
+
 }

@@ -1,4 +1,4 @@
 idf_component_register(
-  SRCS main.cpp MPU6050_DMP.cpp
+  SRCS main.c mpu6050_dmp.cpp
   INCLUDE_DIRS .
 )
