@@ -21,7 +21,7 @@ Refer to [docs] (https://docs.odriverobotics.com/developer-guide), in summary:
 - Edit `Firmware/tup.config` and call `make` in Firmware directory.
 - Connect STlink pins `GND, SWD, and SWC` and call `make flash`.
 - DIP switch needs to be flipped to RUN instead of DFU inorder to flash.
-- For clone boards, the call to `check_board_version()` in `Firmware/Board/v3/board.cpp` has to be commented out, otherwise it will intentionally spinlock during init from OTP mismatch.
+- For clone boards, the call to `check_board_version()` in `Firmware/Board/v3/board.cpp` has to be disabed, otherwise it will intentionally spinlock during init from OTP mismatch.
 
 ## CAN Bus Configuration
 See [CAN Protocol Docs](https://docs.odriverobotics.com/can-protocol).
@@ -29,7 +29,9 @@ See [CAN Protocol Docs](https://docs.odriverobotics.com/can-protocol).
 - There is a built-in DIP switch that toggles the 120Ω termination resistor.
 - Each axis is an independent endpoint, with their unique node ID configured by `odrv0.axis0.config.can.node_id = [0 - 0x3F]`.
 - Set baudrate to 1Mbps `odrv0.can.config.baud_rate = 1000000`.
-- Save and reboot `odrv0.save_configuration(); odrv0.reboot()`.
+- Set encoder rate (for both axis) `odrv0.axis0.config.can.encoder_rate_ms = 10`.
+- Set heartbeat rate (for both axis) `odrv0.axis0.config.can.heartbeat_rate_ms = 100`.
+- Save and reboot `odrv0.save_configuration()`.
  
 
 ## Setup
