@@ -68,9 +68,9 @@ def balance():
         p.resetBasePositionAndOrientation(robot, pos, orn)
         p.resetJointState(robot, legs[0], 0, 0)
         balance.front_leg = p.addUserDebugParameter("front_leg", -np.pi, np.pi,
-                                                  0)
+                                                    0)
         balance.back_leg = p.addUserDebugParameter("back_leg", -np.pi, np.pi,
-                                                 -np.pi)
+                                                   -np.pi)
 
         balance.P = p.addUserDebugParameter("P", 0, 10000, 300)
         balance.I = p.addUserDebugParameter("I", 0, 0.001, 0.0001)

@@ -71,7 +71,7 @@ static void can_init() {
 
 static void control_loop(void* pvParameters) {
     App* app = (App*) pvParameters;
-    static char json[256];
+    // static char json[256];
     // Match IMU DMP output rate of 100Hz
     for (TickType_t tick = xTaskGetTickCount();; vTaskDelayUntil(&tick, 1)) {
         imu_read(app->imu, &app->imu_msg);

@@ -35,47 +35,47 @@
 typedef struct {
     uint32_t axis_error;
     uint32_t axis_current_state;
-} OdriveHeartbeat;
+} ODriveHeartbeat;
 
 typedef struct {
     float position;
     float velocity;
-} OdriveEncoderEstimates;
+} ODriveEncoderEstimates;
 
 typedef struct {
     int32_t shadow_count;
     int32_t count_cpr;
-} OdriveEncoderCount;
+} ODriveEncoderCount;
 
 typedef struct {
     int32_t control_mode;
     int32_t input_mode;
-} OdriveControllerModes;
+} ODriveControllerModes;
 
 typedef struct {
     float position;
     int16_t velocity_x1000;
     int16_t torque_x1000;
-} OdriveInputPosition;
+} ODriveInputPosition;
 
 typedef struct {
     float velocity;
     float torque;
-} OdriveInputVelocity;
+} ODriveInputVelocity;
 
 typedef struct {
     float velocity_limit;
     float current_limit;
-} OdriveInputLimits;
+} ODriveInputLimits;
 
 typedef struct {
     float accel_limit;
     float decel_limit;
-} OdriveTrajAccelLimit;
+} ODriveTrajAccelLimit;
 
 typedef struct {
     float setpoint;
     float measured;
-} OdriveIq;
+} ODriveIq;
 
-typedef OdriveEncoderEstimates OdriveSensorlessEstimates;
+typedef ODriveEncoderEstimates ODriveSensorlessEstimates;
