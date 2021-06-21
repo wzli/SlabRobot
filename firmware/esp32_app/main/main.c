@@ -16,8 +16,10 @@
 #define PIN_SDA 22
 #define PIN_CLK 23
 
-#define PIN_CTX 12
-#define PIN_CRX 13
+//#define PIN_CTX 12
+//#define PIN_CRX 13
+#define PIN_CTX 32
+#define PIN_CRX 25
 
 #define TYPEDEF_CanStatus(X, _)      \
     X(uint32_t, state, )             \
