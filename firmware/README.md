@@ -58,6 +58,8 @@ docker pull espressif/idf:release-v4.3
   - True (ESP32-CAM has 4MB PSRAM)
 - Component Config / FreeRTOS / Enable FreeRTOS to collect run time stats
   - True
+- Component Config / FreeRTOS / Enable display of xCoreID in vTaskList
+  - True
 
 
 ## Build

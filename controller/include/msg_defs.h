@@ -52,16 +52,17 @@ MXGEN(struct, MotorMsg)
 
 // Controller
 typedef enum {
-    RECOVERY_MODE,
-    SLAB_MODE,
-    TABLE_MODE,
-    BALANCE_MODE,
-} ControllerMode;
+    SLAB_MODE_RECOVERY,
+    SLAB_MODE_SLAB,
+    SLAB_MODE_TABLE,
+    SLAB_MODE_BALANCE,
+    SLAB_MODE_ERROR,
+} SlabMode;
 
-#define TYPEDEF_ControllerContext(X, _) \
-    X(ImuMsg, imu, )                    \
-    X(MotorMsg, motors, [6])            \
+#define TYPEDEF_SlabContext(X, _) \
+    X(ImuMsg, imu, )              \
+    X(MotorMsg, motors, [6])      \
     X(uint8_t, mode, )
 // add params for each mode
 // add reference body velocities, target modes, and desired trajectories
-MXGEN(struct, ControllerContext)
+MXGEN(struct, SlabContext)

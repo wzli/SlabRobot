@@ -3,6 +3,8 @@
 
 // refer to https://docs.odriverobotics.com/can-protocol
 #define ODRIVE_MSG_ID(AXIS_ID, CMD_ID) ((AXIS_ID << 5) | CMD_ID)
+#define ODRIVE_AXIS_ID(MSG_ID) (MSG_ID >> 5)
+#define ODRIVE_CMD_ID(MSG_ID) (MSG_ID & 0x1F)
 
 #define ODRIVE_CMD_CANOPEN_NMT 0x00
 #define ODRIVE_CMD_HEARTBEAT 0x01
