@@ -32,6 +32,13 @@ See [CAN Protocol Docs](https://docs.odriverobotics.com/can-protocol).
 - Set encoder rate (for both axis) `odrv0.axis0.config.can.encoder_rate_ms = 10`.
 - Set heartbeat rate (for both axis) `odrv0.axis0.config.can.heartbeat_rate_ms = 100`.
 - Save and reboot `odrv0.save_configuration()`.
+
+## End Stops
+- `odrv0.config.gpio8_mode = GPIO_MODE_DIGITAL_PULL_UP`
+- `odrv0.save_configuration()`
+- `odrv0.axis0.max_endstop.config.enabled = True`
+- `odrv0.axis0.max_endstop.config.gpio_num = 1`
+- `odrv0.axis0.max_endstop.config.is_active_high = False`
  
 
 ## Setup

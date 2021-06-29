@@ -12,15 +12,16 @@
 
 #include "msg_defs.h"
 
-#define PIN_SDA 22
-#define PIN_CLK 23
+#define PIN_SDA 13
+#define PIN_CLK 16
 // #define PIN_SDA 13
 // #define PIN_CLK 12
 
-//#define PIN_CTX 12
-//#define PIN_CRX 13
-#define PIN_CTX 32
-#define PIN_CRX 25
+#define PIN_CTX 12
+#define PIN_CRX 4
+
+// #define PIN_CTX 32
+// #define PIN_CRX 25
 
 #define TYPEDEF_CanStatus(X, _)      \
     X(uint32_t, state, )             \
@@ -128,7 +129,7 @@ static void monitor_loop(void* pvParameters) {
         ESP_ERROR_CHECK(twai_get_status_info((twai_status_info_t*) &app->status.can));
         uxTaskGetSystemState((TaskStatus_t*) app->status.tasks, 8, NULL);
         AppStatus_to_json(&app->status, text_buf);
-        // puts(text_buf);
+        puts(text_buf);
         // asprintf(text_buf);
     }
 }
