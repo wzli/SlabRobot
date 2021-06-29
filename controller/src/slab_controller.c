@@ -3,5 +3,5 @@
 SlabContext slab_context;
 
 void test_func() {
-    SlabContext_to_json(NULL, NULL);
+    // SlabContext_to_json(NULL, NULL);
 }
