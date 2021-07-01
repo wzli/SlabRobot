@@ -8,5 +8,5 @@ print(dir(slab_lib))
 
 ctx = slab_ctypes.SlabContext()
 slab_lib.test_func()
-#buf = slab_ctypes.test_func()
-#print(buf)
+# buf = slab_ctypes.test_func()
+# print(buf)
