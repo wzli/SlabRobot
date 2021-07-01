@@ -2,27 +2,31 @@
 
 #include <esp_err.h>
 #include <esp_log.h>
+#include <esp_vfs_fat.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
 #include "driver/i2c.h"
+#include "driver/sdmmc_host.h"
 #include "driver/twai.h"
 #include "sdkconfig.h"
 
 #include "msg_defs.h"
 
+#if 1
 #define PIN_SDA 13
 #define PIN_CLK 16
-// #define PIN_SDA 13
-// #define PIN_CLK 12
-
 #define PIN_CTX 12
 #define PIN_CRX 4
+#else
+#define PIN_SDA 22
+#define PIN_CLK 23
+#define PIN_CTX 32
+#define PIN_CRX 25
+#endif
 
-// #define PIN_CTX 32
-// #define PIN_CRX 25
-
+// rx_overrun_count exist in espidf > 4.3
 #define TYPEDEF_CanStatus(X, _)      \
     X(uint32_t, state, )             \
     X(uint32_t, msgs_to_tx, )        \
@@ -55,6 +59,7 @@ MXGEN(struct, TaskStatus)
 MXGEN(struct, ErrorCounters)
 
 #define TYPEDEF_AppStatus(X, _) \
+    X(uint32_t, tick, )         \
     _(TaskStatus, tasks, [8])   \
     X(CanStatus, can, )         \
     X(ErrorCounters, error_counters, )
@@ -72,11 +77,25 @@ typedef struct {
     AppStatus status;
     TaskHandle_t control_task;
     TaskHandle_t monitor_task;
+    int dir_idx;
 } App;
+
+static void sdcard_init() {
+    sdmmc_host_t host = SDMMC_HOST_DEFAULT();
+    sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
+    slot_config.flags |= SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
+    slot_config.width = 1;  // configure 1-line mode
+    sdmmc_card_t* card;
+    esp_vfs_fat_sdmmc_mount_config_t mount_config = {
+            .format_if_mount_failed = false, .max_files = 5, .allocation_unit_size = 16 * 1024};
+    ESP_ERROR_CHECK_WITHOUT_ABORT(
+            esp_vfs_fat_sdmmc_mount("/sdcard", &host, &slot_config, &mount_config, &card));
+}
 
 static void can_init() {
     twai_general_config_t g_config =
             TWAI_GENERAL_CONFIG_DEFAULT(PIN_CTX, PIN_CRX, TWAI_MODE_NORMAL);
+    g_config.intr_flags |= ESP_INTR_FLAG_IRAM;
     g_config.rx_queue_len = 32;
     twai_timing_config_t t_config = TWAI_TIMING_CONFIG_1MBITS();
     twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
@@ -95,27 +114,60 @@ static void i2c_init() {
     ESP_ERROR_CHECK(i2c_param_config(I2C_NUM_0, &conf));
     ESP_ERROR_CHECK(i2c_driver_install(I2C_NUM_0, I2C_MODE_MASTER, 0, 0, 0));
 }
-
 static void control_loop(void* pvParameters) {
     App* app = (App*) pvParameters;
     // static char text_buf[512];
     // Match IMU DMP output rate of 100Hz
     // ODrive encoder updates also configured to 100Hz
     for (TickType_t tick = xTaskGetTickCount();; vTaskDelayUntil(&tick, 1)) {
-        printf("t%d\n", tick);
+        // printf("t%d\n", tick);
         app->status.error_counters.imu_fetch += !imu_read(app->imu, &app->ctx.imu);
-        app->status.error_counters.odrive_fetch += 1 & odrive_receive_updates(app->ctx.motors, 2);
+        app->status.error_counters.odrive_fetch +=
+                ESP_OK != odrive_receive_updates(app->ctx.motors, 2);
         // ImuMsg_to_json(&app->imu_msg, app->json);
         // Vector3F_to_json(&app->imu_msg.linear_acceleration, app->json);
         // puts(app->json);
     }
 }
 
+static FRESULT f_write_line(FIL* file, char* text_buf, int len) {
+    assert(file);
+    assert(text_buf);
+    text_buf[len] = '\n';
+    text_buf[++len] = '\0';
+    uint32_t bytes_written = 0;
+    return f_write(file, text_buf, len, &bytes_written);
+}
+
 static void monitor_loop(void* pvParameters) {
     TRY_STATIC_ASSERT(sizeof(CanStatus) == sizeof(twai_status_info_t), "type mismatch");
-    App* app = (App*) pvParameters;
     static char text_buf[2048];
-    for (TickType_t tick = xTaskGetTickCount();; vTaskDelayUntil(&tick, 1000)) {
+
+    assert(pvParameters);
+    App* app = (App*) pvParameters;
+    const char* TAG = pcTaskGetName(NULL);
+    FIL* csv_log = NULL;
+#if 1
+    // create new csv log
+    if (app->dir_idx > -1) {
+        csv_log = malloc(sizeof(FIL));
+        assert(csv_log);
+        sprintf(text_buf, "%d/%s", app->dir_idx, "test.csv");
+        FRESULT fresult = f_open(csv_log, text_buf, FA_WRITE | FA_CREATE_NEW);
+        if (fresult == FR_OK) {
+            ESP_LOGI(TAG, "f_open %s success", text_buf);
+            int len = AppStatus_to_csv_header(0, text_buf);
+            ESP_ERROR_CHECK_WITHOUT_ABORT(f_write_line(csv_log, text_buf, len));
+            ESP_ERROR_CHECK_WITHOUT_ABORT(f_sync(csv_log));
+        } else {
+            ESP_LOGW(TAG, "failed to f_open %s error %d", text_buf, fresult);
+            free(csv_log);
+            csv_log = NULL;
+        }
+    }
+#endif
+
+    for (app->status.tick = xTaskGetTickCount();; vTaskDelayUntil(&app->status.tick, 100)) {
 #if 0
         puts("Task Name       State   Pri     Stack   Num     CoreId");
         vTaskList(text_buf);
@@ -125,20 +177,46 @@ static void monitor_loop(void* pvParameters) {
         vTaskGetRunTimeStats(text_buf);
         puts(text_buf);
 #endif
-
         ESP_ERROR_CHECK(twai_get_status_info((twai_status_info_t*) &app->status.can));
-        uxTaskGetSystemState((TaskStatus_t*) app->status.tasks, 8, NULL);
+        uxTaskGetSystemState((TaskStatus_t*) app->status.tasks,
+                sizeof(app->status.tasks) / sizeof(app->status.tasks[0]), NULL);
         AppStatus_to_json(&app->status, text_buf);
         puts(text_buf);
-        // asprintf(text_buf);
+        puts("");
+
+        if (csv_log) {
+            int len = AppStatus_to_csv_entry(&app->status, text_buf);
+            ESP_ERROR_CHECK_WITHOUT_ABORT(f_write_line(csv_log, text_buf, len));
+            ESP_ERROR_CHECK_WITHOUT_ABORT(f_sync(csv_log));
+        }
     }
 }
 
+int dir_create() {
+    FRESULT fresult;
+    char text_buf[11];
+    int dir_idx = 0;
+    do {
+        sprintf(text_buf, "%d", dir_idx);
+        fresult = f_mkdir(text_buf);
+    } while (FR_EXIST == fresult && ++dir_idx);
+    if (fresult != FR_OK) {
+        ESP_LOGW(pcTaskGetName(NULL), "f_mkdir sdcard/%d error %d", dir_idx, fresult);
+        return -1;
+    }
+    ESP_LOGI(pcTaskGetName(NULL), "f_mkdir sdcard/%d success", dir_idx);
+    return dir_idx;
+}
+
 void app_main(void) {
-    static App app;
+    sdcard_init();
     can_init();
     i2c_init();
+
+    static App app;
+    app.dir_idx = dir_create();
     app.imu = imu_create();
-    xTaskCreatePinnedToCore(control_loop, "control_loop", 2048, &app, 9, &app.control_task, 1);
-    xTaskCreatePinnedToCore(monitor_loop, "monitor_loop", 2048, &app, 1, &app.monitor_task, 0);
+
+    xTaskCreatePinnedToCore(monitor_loop, "monitor_loop", 8 * 2048, &app, 1, &app.monitor_task, 0);
+    xTaskCreatePinnedToCore(control_loop, "control_loop", 8 * 2048, &app, 9, &app.control_task, 1);
 }
