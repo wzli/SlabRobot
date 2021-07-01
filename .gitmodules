@@ -4,3 +4,6 @@
 [submodule "submodules/mxgen"]
 	path = submodules/mxgen
 	url = https://github.com/wzli/mxgen.git
+[submodule "submodules/esp32-ps3"]
+	path = submodules/esp32-ps3
+	url = https://github.com/jvpernis/esp32-ps3.git

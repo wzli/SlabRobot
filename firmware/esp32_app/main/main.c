@@ -1,17 +1,20 @@
 #include <stdio.h>
 
-#include <esp_err.h>
-#include <esp_log.h>
-#include <esp_vfs_fat.h>
-
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "esp_err.h"
+#include "esp_log.h"
+#include "esp_timer.h"
+#include "esp_vfs_fat.h"
+
+#include "nvs_flash.h"
 #include "driver/i2c.h"
 #include "driver/sdmmc_host.h"
 #include "driver/twai.h"
 #include "sdkconfig.h"
 
+#include "ps3.h"
 #include "msg_defs.h"
 
 #if 1
@@ -58,8 +61,45 @@ MXGEN(struct, TaskStatus)
     X(uint32_t, odrive_fetch, )
 MXGEN(struct, ErrorCounters)
 
+#define TYPEDEF_Ps3Gamepad(X, _)   \
+    X(uint32_t, buttons, )         \
+    X(uint32_t, buttons_up, )      \
+    X(uint32_t, buttons_down, )    \
+    X(int8_t, l_stick, [2])        \
+    X(int8_t, r_stick, [2])        \
+    X(uint8_t, triggers, [2])      \
+    X(int16_t, accelerometer, [3]) \
+    X(int16_t, gyroscope_z, )      \
+    X(uint8_t, battery_status, )
+MXGEN(struct, Ps3Gamepad)
+
+typedef enum {
+    PS3_SELECT,
+    PS3_L3,
+    PS3_R3,
+    PS3_START,
+
+    PS3_UP,
+    PS3_RIGHT,
+    PS3_DOWN,
+    PS3_LEFT,
+
+    PS3_L2,
+    PS3_R2,
+    PS3_L1,
+    PS3_R1,
+
+    PS3_TRIANGLE,
+    PS3_CIRCLE,
+    PS3_CROSS,
+    PS3_SQUARE,
+
+    PS3_HOME,
+} Ps3Button;
+
 #define TYPEDEF_AppStatus(X, _) \
     X(uint32_t, tick, )         \
+    X(Ps3Gamepad, gamepad, )    \
     _(TaskStatus, tasks, [8])   \
     X(CanStatus, can, )         \
     X(ErrorCounters, error_counters, )
@@ -114,6 +154,16 @@ static void i2c_init() {
     ESP_ERROR_CHECK(i2c_param_config(I2C_NUM_0, &conf));
     ESP_ERROR_CHECK(i2c_driver_install(I2C_NUM_0, I2C_MODE_MASTER, 0, 0, 0));
 }
+
+static void ps3_init() {
+    static const uint8_t mac[6] = {0x54, 0x54, 0x54, 0x54, 0x54, 0x54};
+    ESP_ERROR_CHECK(nvs_flash_init());
+    ps3SetBluetoothMacAddress(mac);
+    ps3Init();
+    ESP_LOGI(pcTaskGetName(NULL), "Bluetooth MAC %02x:%02x:%02x:%02x:%02x:%02x", mac[0], mac[1],
+            mac[2], mac[3], mac[4], mac[5]);
+}
+
 static void control_loop(void* pvParameters) {
     App* app = (App*) pvParameters;
     // static char text_buf[512];
@@ -167,7 +217,7 @@ static void monitor_loop(void* pvParameters) {
     }
 #endif
 
-    for (app->status.tick = xTaskGetTickCount();; vTaskDelayUntil(&app->status.tick, 100)) {
+    for (app->status.tick = xTaskGetTickCount();; vTaskDelayUntil(&app->status.tick, 300)) {
 #if 0
         puts("Task Name       State   Pri     Stack   Num     CoreId");
         vTaskList(text_buf);
@@ -180,6 +230,7 @@ static void monitor_loop(void* pvParameters) {
         ESP_ERROR_CHECK(twai_get_status_info((twai_status_info_t*) &app->status.can));
         uxTaskGetSystemState((TaskStatus_t*) app->status.tasks,
                 sizeof(app->status.tasks) / sizeof(app->status.tasks[0]), NULL);
+
         AppStatus_to_json(&app->status, text_buf);
         puts(text_buf);
         puts("");
@@ -192,7 +243,7 @@ static void monitor_loop(void* pvParameters) {
     }
 }
 
-int dir_create() {
+static int dir_create() {
     FRESULT fresult;
     char text_buf[11];
     int dir_idx = 0;
@@ -208,14 +259,36 @@ int dir_create() {
     return dir_idx;
 }
 
+static void ps3_gamepad_callback(void* pvParameters, ps3_t ps3_state, ps3_event_t ps3_event) {
+    TRY_STATIC_ASSERT(sizeof(ps3_button_t) <= sizeof(uint32_t), "buttons type mismatch");
+    Ps3Gamepad* gamepad = &((App*) pvParameters)->status.gamepad;
+    memcpy(&gamepad->buttons, &ps3_state.button, sizeof(ps3_button_t));
+    memcpy(&gamepad->buttons_up, &ps3_event.button_up, sizeof(ps3_button_t));
+    memcpy(&gamepad->buttons_down, &ps3_event.button_down, sizeof(ps3_button_t));
+    gamepad->buttons &= 0x1FFFF;
+    gamepad->buttons_up &= 0x1FFFF;
+    gamepad->buttons_down &= 0x1FFFF;
+    gamepad->l_stick[0] = ps3_state.analog.stick.lx;
+    gamepad->l_stick[1] = ps3_state.analog.stick.ly;
+    gamepad->r_stick[0] = ps3_state.analog.stick.rx;
+    gamepad->r_stick[1] = ps3_state.analog.stick.ry;
+    gamepad->triggers[0] = ps3_state.analog.button.l2;
+    gamepad->triggers[1] = ps3_state.analog.button.r2;
+    memcpy(&gamepad->accelerometer, &ps3_state.sensor.accelerometer, 3 * sizeof(uint16_t));
+    gamepad->gyroscope_z = ps3_state.sensor.gyroscope.z;
+    gamepad->battery_status = ps3_state.status.battery;
+}
+
 void app_main(void) {
     sdcard_init();
     can_init();
     i2c_init();
+    ps3_init();
 
     static App app;
     app.dir_idx = dir_create();
     app.imu = imu_create();
+    ps3SetEventObjectCallback(&app, ps3_gamepad_callback);
 
     xTaskCreatePinnedToCore(monitor_loop, "monitor_loop", 8 * 2048, &app, 1, &app.monitor_task, 0);
     xTaskCreatePinnedToCore(control_loop, "control_loop", 8 * 2048, &app, 9, &app.control_task, 1);
