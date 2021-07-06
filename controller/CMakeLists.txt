@@ -10,7 +10,7 @@ file(GLOB headers include/*.h)
 add_custom_command(
   OUTPUT slab_ctypes.py
   COMMAND ctypesgen -l lib${CMAKE_PROJECT_NAME}.so --output=slab_ctypes.py ${headers}
-  DEPENDS ${CMAKE_PROJECT_NAME}
+  DEPENDS ${headers}
   COMMENT "Generate python message definitions"
   VERBATIM
 )
