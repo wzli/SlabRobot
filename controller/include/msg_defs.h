@@ -56,12 +56,12 @@ MXGEN(struct, MotorInput)
 MXGEN(struct, MotorMsg)
 
 typedef enum {
+    MOTOR_ID_FRONT_LEGS,
+    MOTOR_ID_BACK_LEGS,
     MOTOR_ID_FRONT_LEFT_WHEEL,
     MOTOR_ID_FRONT_RIGHT_WHEEL,
     MOTOR_ID_BACK_LEFT_WHEEL,
     MOTOR_ID_BACK_RIGHT_WHEEL,
-    MOTOR_ID_FRONT_LEGS,
-    MOTOR_ID_BACK_LEGS,
 } MotorID;
 
 typedef enum {
@@ -69,12 +69,30 @@ typedef enum {
     CONTROLLER_MODE_BALANCE,
 } ControllerMode;
 
+// wheel speed in (rad/s)
+// wheel radius in (m)
+// wheel distance in (m)
+#define TYPEDEF_SlabConfig(X, _) \
+    X(float, max_wheel_speed, )  \
+    X(float, wheel_diameter, )   \
+    X(float, wheel_distance, )
+MXGEN(struct, SlabConfig)
+
+#define TYPEDEF_SlabInput(X, _)  \
+    X(float, linear_velocity, )  \
+    X(float, angular_velocity, ) \
+    X(float, legs_position, [2]) \
+    X(float, pitch_angle, )
+MXGEN(struct, SlabInput)
+
 #define TYPEDEF_Slab(X, _)        \
     X(uint32_t, tick, )           \
     X(ImuMsg, imu, )              \
     X(MotorMsg, motors, [6])      \
     X(uint8_t, controller_mode, ) \
-    X(bool, inverted, )
+    X(bool, inverted, )           \
+    X(SlabConfig, config, )       \
+    X(SlabInput, input, )
 // add params for each mode
 // add reference body velocities, target modes, and desired trajectories
 MXGEN(struct, Slab)

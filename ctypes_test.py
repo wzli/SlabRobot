@@ -4,6 +4,7 @@ import pybullet as p
 import pybullet_data
 import numpy as np
 import time
+import inputs, os, io, fcntl
 
 import ctypes
 from controller.build import slab_ctypes
@@ -13,6 +14,7 @@ libslab = slab_ctypes._libs["libslab_controller.so"]
 
 class Simulation:
     def __init__(self):
+        self.init_inputs()
         # pybullet setup
         physicsClient = p.connect(p.GUI)
         p.setAdditionalSearchPath(pybullet_data.getDataPath())  # optionally
@@ -25,6 +27,27 @@ class Simulation:
         # reset
         self.step_divider = 3
         self.reset()
+
+    def init_inputs(self):
+        # init inputs
+        self.inputs = {}
+        try:
+            self.keyboard = inputs.devices.keyboards[0]
+            self.keyboard.read()
+        except PermissionError:
+            print("No keyboard permission.")
+            self.keyboard = None
+        try:
+            self.gamepad = inputs.devices.gamepads[0]
+            self.gamepad._character_file = io.open(
+                self.gamepad._character_device_path, "rb"
+            )
+            fd = self.gamepad._character_file.fileno()
+            flag = fcntl.fcntl(fd, fcntl.F_GETFL)
+            fcntl.fcntl(fd, fcntl.F_SETFL, flag | os.O_NONBLOCK)
+        except IndexError:
+            print("No gamepad found.")
+            self.gamepad = None
 
     def reset(self):
         p.resetSimulation()
@@ -45,6 +68,9 @@ class Simulation:
         # reset camera
         p.resetDebugVisualizerCamera(5, 50, -35, (0, 0, 0))
         self.slab = slab_ctypes.Slab()
+        self.slab.config.max_wheel_speed = 4
+        self.slab.config.wheel_diameter = 0.165
+        self.slab.config.wheel_distance = 0.4
 
     def handle_center_button(self):
         if p.readUserDebugParameter(self.center_button) > self.center_button_count:
@@ -107,6 +133,26 @@ class Simulation:
             positionGains=[0.01, 0.01],
         )
 
+    def update_inputs(self):
+        if self.keyboard:
+            for event in self.keyboard.read():
+                self.inputs[event.code] = event.state
+        if self.gamepad:
+            events = self.gamepad._do_iter()
+            if events:
+                for event in events:
+                    self.inputs[event.code] = event.state
+        # print(self.inputs)
+        dpad = np.zeros(2)
+        dpad[0] += self.inputs.get("BTN_DPAD_UP", 0)
+        dpad[0] -= self.inputs.get("BTN_DPAD_DOWN", 0)
+        dpad[1] += self.inputs.get("BTN_DPAD_LEFT", 0)
+        dpad[1] -= self.inputs.get("BTN_DPAD_RIGHT", 0)
+        if np.any(dpad):
+            dpad *= self.inputs.get("ABS_RZ", 0) / (255 * np.linalg.norm(dpad))
+        self.slab.input.linear_velocity = dpad[0] * self.slab.config.max_wheel_speed
+        self.slab.input.angular_velocity = dpad[1] * self.slab.config.max_wheel_speed
+
     def update_slab(self):
         if self.steps % self.step_divider > 0:
             return
@@ -118,6 +164,7 @@ class Simulation:
     def run(self):
         while True:
             p.stepSimulation()
+            self.update_inputs()
             self.update_slab()
             self.steps += 1
             time.sleep(1.0 / (240.0 * p.readUserDebugParameter(self.sim_rate)))
