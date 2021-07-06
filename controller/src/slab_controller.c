@@ -3,12 +3,16 @@
 void slab_update(Slab* slab) {
     // SlabContext_to_json(NULL, NULL);
 
-    float v_l = slab->input.linear_velocity;
-    float v_a = slab->input.angular_velocity;
-    float r = slab->config.wheel_diameter / 2;
-    float R = slab->config.wheel_distance / 2;
-    float left_speed = (v_l - v_a * R) / r;
-    float right_speed = (v_l + v_a * R) / r;
+    const float r = slab->config.wheel_diameter / 2;
+    const float R = slab->config.wheel_distance / 2;
+    const float v_max = slab->config.max_wheel_speed;
+    float v_lin = slab->input.linear_velocity;
+    float v_ang = slab->input.angular_velocity;
+    float left_speed = (v_lin - v_ang * R) / r;
+    float right_speed = (v_lin + v_ang * R) / r;
+    left_speed = fmin(v_max, fmax(-v_max, left_speed));
+    right_speed = fmin(v_max, fmax(-v_max, right_speed));
+    printf("%f %f \n", left_speed, right_speed);
     slab->motors[MOTOR_ID_FRONT_LEFT_WHEEL].input.velocity = left_speed;
     slab->motors[MOTOR_ID_FRONT_RIGHT_WHEEL].input.velocity = right_speed;
     slab->motors[MOTOR_ID_BACK_LEFT_WHEEL].input.velocity = left_speed;

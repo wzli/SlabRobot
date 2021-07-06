@@ -68,9 +68,9 @@ class Simulation:
         # reset camera
         p.resetDebugVisualizerCamera(5, 50, -35, (0, 0, 0))
         self.slab = slab_ctypes.Slab()
-        self.slab.config.max_wheel_speed = 4
-        self.slab.config.wheel_diameter = 0.165
-        self.slab.config.wheel_distance = 0.4
+        self.slab.config.max_wheel_speed = 40  # rad/s
+        self.slab.config.wheel_diameter = 0.165  # m
+        self.slab.config.wheel_distance = 0.4  # m
 
     def handle_center_button(self):
         if p.readUserDebugParameter(self.center_button) > self.center_button_count:
@@ -150,8 +150,13 @@ class Simulation:
         dpad[1] -= self.inputs.get("BTN_DPAD_RIGHT", 0)
         if np.any(dpad):
             dpad *= self.inputs.get("ABS_RZ", 0) / (255 * np.linalg.norm(dpad))
-        self.slab.input.linear_velocity = dpad[0] * self.slab.config.max_wheel_speed
-        self.slab.input.angular_velocity = dpad[1] * self.slab.config.max_wheel_speed
+            dpad *= (
+                self.slab.config.max_wheel_speed * 0.5 * self.slab.config.wheel_diameter
+            )
+        self.slab.input.linear_velocity = dpad[0]
+        self.slab.input.angular_velocity = dpad[1] / (
+            0.5 * self.slab.config.wheel_distance
+        )
 
     def update_slab(self):
         if self.steps % self.step_divider > 0:
