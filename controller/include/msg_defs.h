@@ -15,6 +15,8 @@ MXGEN(struct, QuaternionF)
     X(float, z, )
 MXGEN(struct, Vector3F)
 
+// acceleration in units of (g)
+// angular velocity in units of (rad/s)
 #define TYPEDEF_ImuMsg(X, _)           \
     X(QuaternionF, orientation, )      \
     X(Vector3F, linear_acceleration, ) \
@@ -22,6 +24,9 @@ MXGEN(struct, Vector3F)
 MXGEN(struct, ImuMsg)
 
 // Motor
+// position in units of (rad)
+// velocity in units of (rad/s)
+// torque in units of (Nm)
 #define TYPEDEF_MotorStatus(X, _) \
     X(uint32_t, error, )          \
     X(uint32_t, state, )
@@ -50,19 +55,26 @@ MXGEN(struct, MotorInput)
     X(MotorInput, input, )
 MXGEN(struct, MotorMsg)
 
-// Controller
 typedef enum {
-    SLAB_MODE_RECOVERY,
-    SLAB_MODE_SLAB,
-    SLAB_MODE_TABLE,
-    SLAB_MODE_BALANCE,
-    SLAB_MODE_ERROR,
-} SlabMode;
+    MOTOR_ID_FRONT_LEFT_WHEEL,
+    MOTOR_ID_FRONT_RIGHT_WHEEL,
+    MOTOR_ID_BACK_LEFT_WHEEL,
+    MOTOR_ID_BACK_RIGHT_WHEEL,
+    MOTOR_ID_FRONT_LEGS,
+    MOTOR_ID_BACK_LEGS,
+} MotorID;
 
-#define TYPEDEF_SlabContext(X, _) \
+typedef enum {
+    CONTROLLER_MODE_GROUND,
+    CONTROLLER_MODE_BALANCE,
+} ControllerMode;
+
+#define TYPEDEF_Slab(X, _)        \
+    X(uint32_t, tick, )           \
     X(ImuMsg, imu, )              \
     X(MotorMsg, motors, [6])      \
-    X(uint8_t, mode, )
+    X(uint8_t, controller_mode, ) \
+    X(bool, inverted, )
 // add params for each mode
 // add reference body velocities, target modes, and desired trajectories
-MXGEN(struct, SlabContext)
+MXGEN(struct, Slab)
