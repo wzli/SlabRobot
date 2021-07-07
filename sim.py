@@ -12,9 +12,14 @@ planeId = p.loadURDF("plane.urdf")
 p.setGravity(0, 0, -9.8)
 
 robot = p.loadURDF("urdf/robot.urdf")
-joints = [p.getJointInfo(robot, i) for i in range(p.getNumJoints(robot))]
-legs = [joint[0] for joint in joints if joint[1].endswith(b"leg")]
-wheels = [joint[0] for joint in joints if joint[1].endswith(b"wheel")]
+joints = {p.getJointInfo(robot, i)[1]: i for i in range(p.getNumJoints(robot))}
+legs = [joints[b"front_leg"], joints[b"back_leg"]]
+wheels = [
+    joints[b"front_left_wheel"],
+    joints[b"front_right_wheel"],
+    joints[b"back_left_wheel"],
+    joints[b"back_right_wheel"],
+]
 
 # start with legs folded
 for leg in legs:
@@ -32,7 +37,7 @@ spin_param = p.addUserDebugParameter("spin", -MAX_SPEED, MAX_SPEED, 0)
 
 
 def set_wheel_speed(v, w=0):
-    to_wheel_speeds = np.array([[1, 1], [-1, 1], [1, 1], [-1, 1]])
+    to_wheel_speeds = np.array([[-1, 1], [1, 1], [-1, 1], [1, 1]])
     p.setJointMotorControlArray(
         robot,
         wheels,
@@ -71,7 +76,7 @@ def table():
 
 def balance():
     if balance.iteration == 0:
-        pos = (0, 0, 1)  # x y z
+        pos = (0, 0, 1.2)  # x y z
         orn = (1, 0, 0, 1)  # qx qy qz qw
         p.resetBasePositionAndOrientation(robot, pos, orn)
         p.resetJointState(robot, legs[0], 0, 0)
@@ -84,7 +89,7 @@ def balance():
         balance.init = False
 
     balance.iteration += 1
-    if balance.iteration < 200:
+    if balance.iteration < 100:
         return
 
     # p.setJointMotorControlArray(robot, legs, p.POSITION_CONTROL, targetPositions = [p.readUserDebugParameter(balance.front_leg), p.readUserDebugParameter(balance.back_leg)], positionGains = [0.01, 0.01])
@@ -114,8 +119,8 @@ def balance():
         [legs[0]],
         p.POSITION_CONTROL,
         targetPositions=[
-            -p.readUserDebugParameter(balance.I) * balance.speed_integral
-            - p.readUserDebugParameter(balance.D) * speed_error
+            p.readUserDebugParameter(balance.I) * balance.speed_integral
+            + p.readUserDebugParameter(balance.D) * speed_error
         ],
         positionGains=[0.01],
     )

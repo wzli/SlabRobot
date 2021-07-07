@@ -1,7 +1,7 @@
 <robot name="onshape">
 <link name="body">
 <visual>
-<origin xyz="-9.18996e-18 -1.11022e-16 -0.04" rpy="-3.14159 -1.41718e-16 3.14159" />
+<origin xyz="0 0 -0.04" rpy="3.14159 -5.03885e-29 -1.11022e-16" />
 <geometry>
 <mesh filename="package://body.stl"/>
 </geometry>
@@ -10,7 +10,7 @@
 </material>
 </visual>
 <collision>
-<origin xyz="-9.18996e-18 -1.11022e-16 -0.04" rpy="-3.14159 -1.41718e-16 3.14159" />
+<origin xyz="0 0 -0.04" rpy="3.14159 -5.03885e-29 -1.11022e-16" />
 <geometry>
 <mesh filename="package://body.stl"/>
 </geometry>
@@ -19,9 +19,9 @@
 </material>
 </collision>
 <inertial>
-<origin xyz="-9.18996e-18 -1.16513e-16 -0.04" rpy="0 0 0"/>
+<origin xyz="-1.08364e-33 9.76058e-18 -0.04" rpy="0 0 0"/>
 <mass value="7.22018" />
-<inertia ixx="0.133175" ixy="5.3548e-18"  ixz="-7.147e-18" iyy="0.0578714" iyz="2.75575e-17" izz="0.183606" />
+<inertia ixx="0.133175" ixy="2.12104e-17"  ixz="-1.59622e-29" iyy="0.0578714" iyz="-6.09576e-29" izz="0.183606" />
 </inertial>
 </link>
 
@@ -47,13 +47,13 @@
 <inertial>
 <origin xyz="0.150043 0.019542 0.15" rpy="0 0 0"/>
 <mass value="1.46202" />
-<inertia ixx="0.0603673" ixy="6.94831e-37"  ixz="0.00199071" iyy="0.0253453" iyz="1.61377e-38" izz="0.036191" />
+<inertia ixx="0.0603673" ixy="-4.37547e-62"  ixz="0.00199071" iyy="0.0253453" iyz="-1.01622e-63" izz="0.036191" />
 </inertial>
 </link>
 
 <link name="wheel">
 <visual>
-<origin xyz="-0.146667 1.11022e-16 0.175" rpy="1.5708 1.5708 0" />
+<origin xyz="-0.146667 9.71445e-17 0.175" rpy="1.5708 1.5708 0" />
 <geometry>
 <mesh filename="package://wheel.stl"/>
 </geometry>
@@ -62,7 +62,7 @@
 </material>
 </visual>
 <collision>
-<origin xyz="-0.146667 1.11022e-16 0.175" rpy="1.5708 1.5708 0" />
+<origin xyz="-0.146667 9.71445e-17 0.175" rpy="1.5708 1.5708 0" />
 <geometry>
 <mesh filename="package://wheel.stl"/>
 </geometry>
@@ -71,14 +71,14 @@
 </material>
 </collision>
 <inertial>
-<origin xyz="-8.32667e-17 -4.0857e-18 -0.025" rpy="0 0 0"/>
+<origin xyz="-2.77556e-17 -1.79635e-17 -0.025" rpy="0 0 0"/>
 <mass value="1.81751" />
-<inertia ixx="0.00347125" ixy="-7.44518e-38"  ixz="-3.3427e-37" iyy="0.00618521" iyz="0" izz="0.00347125" />
+<inertia ixx="0.00347125" ixy="8.5573e-35"  ixz="-2.73834e-33" iyy="0.00618521" iyz="-3.37526e-65" izz="0.00347125" />
 </inertial>
 </link>
 
-<joint name="front_right_wheel" type="revolute">
-<origin xyz="0.346667 -1.66533e-16 -0.025" rpy="1.41928e-16 1.30419e-17 -0.0872665" />
+<joint name="front_left_wheel" type="revolute">
+<origin xyz="0.346667 -1.11022e-16 -0.025" rpy="3.012e-15 1.23012e-14 0.0412877" />
 <parent link="leg" />
 <child link="wheel" />
 <axis xyz="0 0 1"/>
@@ -88,7 +88,7 @@
 
 <link name="wheel_2">
 <visual>
-<origin xyz="-0.146667 1.11022e-16 0.175" rpy="1.5708 1.5708 0" />
+<origin xyz="-0.146667 1.17961e-16 0.175" rpy="1.5708 1.5708 0" />
 <geometry>
 <mesh filename="package://wheel.stl"/>
 </geometry>
@@ -97,7 +97,7 @@
 </material>
 </visual>
 <collision>
-<origin xyz="-0.146667 1.11022e-16 0.175" rpy="1.5708 1.5708 0" />
+<origin xyz="-0.146667 1.17961e-16 0.175" rpy="1.5708 1.5708 0" />
 <geometry>
 <mesh filename="package://wheel.stl"/>
 </geometry>
@@ -106,14 +106,14 @@
 </material>
 </collision>
 <inertial>
-<origin xyz="8.32667e-17 -4.0857e-18 -0.025" rpy="0 0 0"/>
+<origin xyz="-2.77556e-17 2.85319e-18 -0.025" rpy="0 0 0"/>
 <mass value="1.81751" />
-<inertia ixx="0.00347125" ixy="4.57432e-34"  ixz="-5.07851e-50" iyy="0.00618521" iyz="-6.86696e-19" izz="0.00347125" />
+<inertia ixx="0.00347125" ixy="7.01779e-34"  ixz="0" iyy="0.00618521" iyz="0" izz="0.00347125" />
 </inertial>
 </link>
 
-<joint name="front_left_wheel" type="revolute">
-<origin xyz="0.346667 -1.80411e-16 0.325" rpy="-3.14159 -1.77836e-16 -2.35619" />
+<joint name="front_right_wheel" type="revolute">
+<origin xyz="0.346667 -1.11022e-16 0.325" rpy="-3.14159 2.46677e-14 -2.63678e-15" />
 <parent link="leg" />
 <child link="wheel_2" />
 <axis xyz="0 0 1"/>
@@ -122,7 +122,7 @@
 </joint>
 
 <joint name="front_leg" type="revolute">
-<origin xyz="-0.15 -0.2 -0.04" rpy="-1.5708 -1.66533e-16 -1.5708" />
+<origin xyz="0.15 -0.2 -0.04" rpy="1.5708 -8.28304e-30 -1.5708" />
 <parent link="body" />
 <child link="leg" />
 <axis xyz="0 0 1"/>
@@ -132,7 +132,7 @@
 
 <link name="leg_2">
 <visual>
-<origin xyz="0.2 6.93889e-18 0.15" rpy="1.5708 1.5708 0" />
+<origin xyz="0.2 0 0.15" rpy="1.5708 1.5708 0" />
 <geometry>
 <mesh filename="package://leg.stl"/>
 </geometry>
@@ -141,7 +141,7 @@
 </material>
 </visual>
 <collision>
-<origin xyz="0.2 6.93889e-18 0.15" rpy="1.5708 1.5708 0" />
+<origin xyz="0.2 0 0.15" rpy="1.5708 1.5708 0" />
 <geometry>
 <mesh filename="package://leg.stl"/>
 </geometry>
@@ -152,13 +152,13 @@
 <inertial>
 <origin xyz="0.150043 0.019542 0.15" rpy="0 0 0"/>
 <mass value="1.46202" />
-<inertia ixx="0.0603673" ixy="-6.39636e-34"  ixz="0.00199071" iyy="0.0253453" iyz="4.25487e-33" izz="0.036191" />
+<inertia ixx="0.0603673" ixy="1.09028e-57"  ixz="0.00199071" iyy="0.0253453" iyz="2.53215e-59" izz="0.036191" />
 </inertial>
 </link>
 
 <link name="wheel_3">
 <visual>
-<origin xyz="-0.146667 1.11022e-16 0.175" rpy="1.5708 1.5708 0" />
+<origin xyz="-0.146667 9.71445e-17 0.175" rpy="1.5708 1.5708 0" />
 <geometry>
 <mesh filename="package://wheel.stl"/>
 </geometry>
@@ -167,7 +167,7 @@
 </material>
 </visual>
 <collision>
-<origin xyz="-0.146667 1.11022e-16 0.175" rpy="1.5708 1.5708 0" />
+<origin xyz="-0.146667 9.71445e-17 0.175" rpy="1.5708 1.5708 0" />
 <geometry>
 <mesh filename="package://wheel.stl"/>
 </geometry>
@@ -176,14 +176,14 @@
 </material>
 </collision>
 <inertial>
-<origin xyz="-8.32667e-17 -4.0857e-18 -0.025" rpy="0 0 0"/>
+<origin xyz="2.77556e-17 -1.79635e-17 -0.025" rpy="0 0 0"/>
 <mass value="1.81751" />
-<inertia ixx="0.00347125" ixy="5.55291e-33"  ixz="-1.36917e-33" iyy="0.00618521" iyz="0" izz="0.00347125" />
+<inertia ixx="0.00347125" ixy="-1.13737e-34"  ixz="-2.33989e-36" iyy="0.00618521" iyz="-2.55138e-68" izz="0.00347125" />
 </inertial>
 </link>
 
-<joint name="back_right_wheel" type="revolute">
-<origin xyz="0.346667 -1.04083e-16 -0.025" rpy="3.15882e-15 1.24219e-14 -3.1003" />
+<joint name="back_left_wheel" type="revolute">
+<origin xyz="0.346667 -1.11022e-16 -0.025" rpy="2.10385e-17 -2.31218e-16 3.05433" />
 <parent link="leg_2" />
 <child link="wheel_3" />
 <axis xyz="0 0 1"/>
@@ -193,7 +193,7 @@
 
 <link name="wheel_4">
 <visual>
-<origin xyz="-0.146667 1.11022e-16 0.175" rpy="1.5708 1.5708 0" />
+<origin xyz="-0.146667 1.66533e-16 0.175" rpy="1.5708 1.5708 0" />
 <geometry>
 <mesh filename="package://wheel.stl"/>
 </geometry>
@@ -202,7 +202,7 @@
 </material>
 </visual>
 <collision>
-<origin xyz="-0.146667 1.11022e-16 0.175" rpy="1.5708 1.5708 0" />
+<origin xyz="-0.146667 1.66533e-16 0.175" rpy="1.5708 1.5708 0" />
 <geometry>
 <mesh filename="package://wheel.stl"/>
 </geometry>
@@ -211,14 +211,14 @@
 </material>
 </collision>
 <inertial>
-<origin xyz="-8.32667e-17 -4.0857e-18 -0.025" rpy="0 0 0"/>
+<origin xyz="8.32667e-17 5.14254e-17 -0.025" rpy="0 0 0"/>
 <mass value="1.81751" />
-<inertia ixx="0.00347125" ixy="7.01779e-34"  ixz="0" iyy="0.00618521" iyz="0" izz="0.00347125" />
+<inertia ixx="0.00347125" ixy="4.57432e-34"  ixz="-1.71146e-34" iyy="0.00618521" iyz="-6.86696e-19" izz="0.00347125" />
 </inertial>
 </link>
 
-<joint name="back_left_wheel" type="revolute">
-<origin xyz="0.346667 -1.04083e-16 0.325" rpy="-3.14159 2.47943e-14 3.14159" />
+<joint name="back_right_wheel" type="revolute">
+<origin xyz="0.346667 -1.11022e-16 0.325" rpy="-3.14159 -1.13436e-16 0.785398" />
 <parent link="leg_2" />
 <child link="wheel_4" />
 <axis xyz="0 0 1"/>
@@ -227,7 +227,7 @@
 </joint>
 
 <joint name="back_leg" type="revolute">
-<origin xyz="-0.15 0.2 -0.04" rpy="1.5708 -3.33067e-16 1.5708" />
+<origin xyz="0.15 0.2 -0.04" rpy="-1.5708 2.52435e-28 1.5708" />
 <parent link="body" />
 <child link="leg_2" />
 <axis xyz="0 0 1"/>
