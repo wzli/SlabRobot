@@ -5,11 +5,24 @@ import pybullet_data
 import numpy as np
 import time
 import inputs, os, io, fcntl
+import json
 
 import ctypes
 from controller.build import slab_ctypes
 
 libslab = slab_ctypes._libs["libslab_controller.so"]
+
+
+def ctype_to_dict(x):
+    if isinstance(x, ctypes.Array):
+        return [ctype_to_dict(element) for element in x]
+    if not hasattr(x, "_fields_"):
+        return x
+    return {field: ctype_to_dict(getattr(x, field)) for field, _ in x._fields_}
+
+
+def print_ctype(x):
+    print(json.dumps(ctype_to_dict(x), indent=2))
 
 
 class Simulation:
@@ -99,6 +112,9 @@ class Simulation:
         self.slab.imu.angular_velocity.y = ang_vel[1]
         self.slab.imu.angular_velocity.z = ang_vel[2]
         # TODO update linear acceleration
+        self.slab.imu.linear_acceleration.x = lin_vel[0]
+        self.slab.imu.linear_acceleration.y = lin_vel[1]
+        self.slab.imu.linear_acceleration.z = lin_vel[2]
         """
         lin_vel = np.array(lin_vel)
         lin_acc = (lin_vel - self.prev_base_velocity) / self.step_divider
@@ -165,6 +181,8 @@ class Simulation:
         self.update_imu()
         self.update_motors()
         libslab.slab_update(ctypes.byref(self.slab))
+        print_ctype(self.slab.imu)
+        print_ctype(self.slab.input)
 
     def run(self):
         while True:
