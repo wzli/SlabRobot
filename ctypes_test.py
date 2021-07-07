@@ -86,8 +86,12 @@ class Simulation:
         self.slab.config.wheel_distance = 0.4  # m
 
     def handle_center_button(self):
-        if p.readUserDebugParameter(self.center_button) > self.center_button_count:
-            self.center_button_count += 1
+        button_count = p.readUserDebugParameter(self.center_button)
+        if (
+            button_count > self.center_button_count
+            or self.inputs.get("BTN_SELECT", 0) == 1
+        ):
+            self.center_button_count = button_count
             camera_info = p.getDebugVisualizerCamera()
             pos, orn = p.getBasePositionAndOrientation(self.robot)
             p.resetDebugVisualizerCamera(
@@ -95,8 +99,13 @@ class Simulation:
             )
 
     def handle_reset_button(self):
-        if p.readUserDebugParameter(self.reset_button) > self.reset_button_count:
-            self.reset_button_count += 1
+        button_count = p.readUserDebugParameter(self.reset_button)
+        if (
+            button_count > self.reset_button_count
+            or self.inputs.get("BTN_MODE", 0) == 1
+        ):
+            self.reset_button_count = button_count
+            self.inputs["BTN_MODE"] = 0
             self.reset()
 
     def update_imu(self):
@@ -181,8 +190,8 @@ class Simulation:
         self.update_imu()
         self.update_motors()
         libslab.slab_update(ctypes.byref(self.slab))
-        print_ctype(self.slab.imu)
-        print_ctype(self.slab.input)
+        # print_ctype(self.slab.imu)
+        # print_ctype(self.slab.input)
 
     def run(self):
         while True:
