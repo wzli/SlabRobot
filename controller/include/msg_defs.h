@@ -1,7 +1,12 @@
 #pragma once
 #include "mxgen.h"
 
+////////////////////////////////////////////////////////////////////////////////
 // IMU
+
+// acceleration in units of (g)
+// angular velocity in units of (rad/s)
+
 #define TYPEDEF_QuaternionF(X, _) \
     X(float, qw, )                \
     X(float, qx, )                \
@@ -15,23 +20,23 @@ MXGEN(struct, QuaternionF)
     X(float, z, )
 MXGEN(struct, Vector3F)
 
-// acceleration in units of (g)
-// angular velocity in units of (rad/s)
 #define TYPEDEF_ImuMsg(X, _)           \
     X(QuaternionF, orientation, )      \
     X(Vector3F, linear_acceleration, ) \
     X(Vector3F, angular_velocity, )
 MXGEN(struct, ImuMsg)
 
+////////////////////////////////////////////////////////////////////////////////
 // Motor
+
 // position in units of (rad)
 // velocity in units of (rad/s)
 // torque in units of (Nm)
+
 #define TYPEDEF_MotorStatus(X, _) \
     X(uint32_t, error, )          \
     X(uint32_t, state, )
 MXGEN(struct, MotorStatus)
-
 #define TYPEDEF_MotorEstimate(X, _) \
     X(float, position, )            \
     X(float, velocity, )
@@ -55,6 +60,39 @@ MXGEN(struct, MotorInput)
     X(MotorInput, input, )
 MXGEN(struct, MotorMsg)
 
+////////////////////////////////////////////////////////////////////////////////
+// Gamepad
+typedef enum {
+    GAMEPAD_BUTTON_SELECT,
+    GAMEPAD_BUTTON_L3,
+    GAMEPAD_BUTTON_R3,
+    GAMEPAD_BUTTON_START,
+
+    GAMEPAD_BUTTON_UP,
+    GAMEPAD_BUTTON_RIGHT,
+    GAMEPAD_BUTTON_DOWN,
+    GAMEPAD_BUTTON_LEFT,
+
+    GAMEPAD_BUTTON_L2,
+    GAMEPAD_BUTTON_R2,
+    GAMEPAD_BUTTON_L1,
+    GAMEPAD_BUTTON_R1,
+
+    GAMEPAD_BUTTON_TRIANGLE,
+    GAMEPAD_BUTTON_CIRCLE,
+    GAMEPAD_BUTTON_CROSS,
+    GAMEPAD_BUTTON_SQUARE,
+} GamepadButton;
+
+#define TYPEDEF_GamepadMsg(X, _) \
+    X(uint16_t, buttons, )       \
+    X(int8_t, left_stick, [2])   \
+    X(int8_t, right_stick, [2])  \
+    X(uint8_t, trigger, [2])     \
+    X(uint8_t, stick_threshold, )
+MXGEN(struct, GamepadMsg)
+
+////////////////////////////////////////////////////////////////////////////////
 typedef enum {
     MOTOR_ID_FRONT_LEGS,
     MOTOR_ID_BACK_LEGS,
@@ -75,7 +113,9 @@ typedef enum {
 #define TYPEDEF_SlabConfig(X, _) \
     X(float, max_wheel_speed, )  \
     X(float, wheel_diameter, )   \
-    X(float, wheel_distance, )
+    X(float, wheel_distance, )   \
+    X(float, max_leg_position, ) \
+    X(float, min_leg_position, )
 MXGEN(struct, SlabConfig)
 
 #define TYPEDEF_SlabInput(X, _)  \
@@ -87,8 +127,9 @@ MXGEN(struct, SlabInput)
 
 #define TYPEDEF_Slab(X, _)        \
     X(uint32_t, tick, )           \
-    X(ImuMsg, imu, )              \
     X(MotorMsg, motors, [6])      \
+    X(ImuMsg, imu, )              \
+    X(GamepadMsg, gamepad, )      \
     X(uint8_t, controller_mode, ) \
     X(bool, inverted, )           \
     X(SlabConfig, config, )       \

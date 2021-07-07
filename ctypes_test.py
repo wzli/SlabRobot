@@ -89,9 +89,13 @@ class Simulation:
         for i, leg in enumerate(self.legs):
             p.resetJointState(self.robot, leg, -np.pi, 0)
             self.slab.input.leg_positions[i] = -np.pi
+        # set slab config
         self.slab.config.max_wheel_speed = 40  # rad/s
         self.slab.config.wheel_diameter = 0.165  # m
         self.slab.config.wheel_distance = 0.4  # m
+        self.slab.config.max_leg_position = np.pi  # rad
+        self.slab.config.min_leg_position = -np.pi  # rad
+        self.slab.gamepad.stick_threshold = 10  # 0 - 255
         # reset camera
         p.resetDebugVisualizerCamera(5, 50, -35, (0, 0, 0))
 
@@ -182,39 +186,30 @@ class Simulation:
             if events:
                 for event in events:
                     self.inputs[event.code] = event.state
-        # print(self.inputs)
-        dpad = np.zeros(2)
-        dpad[0] += self.inputs.get("BTN_DPAD_UP", 0)
-        dpad[0] -= self.inputs.get("BTN_DPAD_DOWN", 0)
-        dpad[1] += self.inputs.get("BTN_DPAD_LEFT", 0)
-        dpad[1] -= self.inputs.get("BTN_DPAD_RIGHT", 0)
-        if np.any(dpad):
-            dpad *= self.inputs.get("ABS_RZ", 0) / (255 * np.linalg.norm(dpad))
-            dpad *= (
-                self.slab.config.max_wheel_speed * 0.5 * self.slab.config.wheel_diameter
-            )
-        self.slab.input.linear_velocity = dpad[0]
-        self.slab.input.angular_velocity = dpad[1] / (
-            0.5 * self.slab.config.wheel_distance
+        self.slab.gamepad.buttons = (
+            (self.inputs.get("BTN_SELECT", 0) << slab_ctypes.GAMEPAD_BUTTON_SELECT)
+            | (self.inputs.get("BTN_THUMBL", 0) << slab_ctypes.GAMEPAD_BUTTON_L3)
+            | (self.inputs.get("BTN_THUMBR", 0) << slab_ctypes.GAMEPAD_BUTTON_R3)
+            | (self.inputs.get("BTN_START", 0) << slab_ctypes.GAMEPAD_BUTTON_START)
+            | (self.inputs.get("BTN_DPAD_UP", 0) << slab_ctypes.GAMEPAD_BUTTON_UP)
+            | (self.inputs.get("BTN_DPAD_RIGHT", 0) << slab_ctypes.GAMEPAD_BUTTON_RIGHT)
+            | (self.inputs.get("BTN_DPAD_DOWN", 0) << slab_ctypes.GAMEPAD_BUTTON_DOWN)
+            | (self.inputs.get("BTN_DPAD_LEFT", 0) << slab_ctypes.GAMEPAD_BUTTON_LEFT)
+            | (min(self.inputs.get("ABS_Z", 0), 1) << slab_ctypes.GAMEPAD_BUTTON_L2)
+            | (min(self.inputs.get("ABS_RZ", 0), 1) << slab_ctypes.GAMEPAD_BUTTON_R2)
+            | (self.inputs.get("BTN_TL", 0) << slab_ctypes.GAMEPAD_BUTTON_L1)
+            | (self.inputs.get("BTN_TR", 0) << slab_ctypes.GAMEPAD_BUTTON_R1)
+            | (self.inputs.get("BTN_NORTH", 0) << slab_ctypes.GAMEPAD_BUTTON_TRIANGLE)
+            | (self.inputs.get("BTN_EAST", 0) << slab_ctypes.GAMEPAD_BUTTON_CIRCLE)
+            | (self.inputs.get("BTN_SOUTH", 0) << slab_ctypes.GAMEPAD_BUTTON_CROSS)
+            | (self.inputs.get("BTN_WEST", 0) << slab_ctypes.GAMEPAD_BUTTON_SQUARE)
         )
-        stick = np.array(
-            [
-                self.inputs.get("ABS_X", 127),
-                self.inputs.get("ABS_Y", 127),
-                self.inputs.get("ABS_RX", 127),
-                self.inputs.get("ABS_RY", 127),
-            ]
-        )
-        stick -= 128
-        stick[(stick < 10) & (stick > -10)] = 0
-        self.slab.input.leg_positions[0] -= stick[1] / (128 * 200)
-        self.slab.input.leg_positions[1] -= stick[3] / (128 * 200)
-        self.slab.input.leg_positions[0] = np.clip(
-            self.slab.input.leg_positions[0], -np.pi, np.pi
-        )
-        self.slab.input.leg_positions[1] = np.clip(
-            self.slab.input.leg_positions[1], -np.pi, np.pi
-        )
+        self.slab.gamepad.left_stick[0] = self.inputs.get("ABS_X", 128) - 128
+        self.slab.gamepad.left_stick[1] = self.inputs.get("ABS_Y", 128) - 128
+        self.slab.gamepad.right_stick[0] = self.inputs.get("ABS_RX", 128) - 128
+        self.slab.gamepad.right_stick[1] = self.inputs.get("ABS_RY", 128) - 128
+        self.slab.gamepad.trigger[0] = self.inputs.get("ABS_Z", 0)
+        self.slab.gamepad.trigger[1] = self.inputs.get("ABS_RZ", 0)
 
     def update_slab(self):
         if self.steps % self.step_divider > 0:
@@ -225,6 +220,7 @@ class Simulation:
         libslab.slab_update(ctypes.byref(self.slab))
         # print_ctype(self.slab.motors[0])
         # print_ctype(self.slab.motors[1])
+        # print_ctype(self.slab.input)
         # print_ctype(self.slab.input)
 
     def run(self):
