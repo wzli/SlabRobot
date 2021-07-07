@@ -93,6 +93,4 @@ MXGEN(struct, SlabInput)
     X(bool, inverted, )           \
     X(SlabConfig, config, )       \
     X(SlabInput, input, )
-// add params for each mode
-// add reference body velocities, target modes, and desired trajectories
 MXGEN(struct, Slab)

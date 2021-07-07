@@ -70,11 +70,20 @@ class Simulation:
         self.prev_base_velocity = np.array([0, 0, 0])
         # load robot urdf
         self.robot = p.loadURDF("urdf/robot.urdf")
-        self.joints = [
-            p.getJointInfo(self.robot, i) for i in range(p.getNumJoints(self.robot))
+        self.joints = {
+            p.getJointInfo(self.robot, i)[1]: i
+            for i in range(p.getNumJoints(self.robot))
+        }
+        self.legs = [self.joints[b"front_leg"], self.joints[b"back_leg"]]
+        self.wheels = [
+            self.joints[b"front_left_wheel"],
+            self.joints[b"front_right_wheel"],
+            self.joints[b"back_left_wheel"],
+            self.joints[b"back_right_wheel"],
         ]
-        self.legs = [joint[0] for joint in self.joints if joint[1].endswith(b"leg")]
-        self.wheels = [joint[0] for joint in self.joints if joint[1].endswith(b"wheel")]
+        # add torque sensor to wheels
+        for wheel in self.wheels:
+            p.enableJointForceTorqueSensor(self.robot, wheel)
         # start with legs folded
         for leg in self.legs:
             p.resetJointState(self.robot, leg, -np.pi, 0)
@@ -134,19 +143,24 @@ class Simulation:
         """
 
     def update_motors(self):
-        # TODO set motor feedback
+        # update motor feedback
+        joint_states = p.getJointStates(self.robot, self.legs + self.wheels)
+        for i, state in enumerate(joint_states):
+            self.slab.motors[i].estimate.position = state[0]
+            self.slab.motors[i].estimate.velocity = state[1]
+        # update wheel speed input
         p.setJointMotorControlArray(
             self.robot,
             self.wheels,
             p.VELOCITY_CONTROL,
             targetVelocities=[
-                self.slab.motors[slab_ctypes.MOTOR_ID_FRONT_RIGHT_WHEEL].input.velocity,
                 -self.slab.motors[slab_ctypes.MOTOR_ID_FRONT_LEFT_WHEEL].input.velocity,
-                self.slab.motors[slab_ctypes.MOTOR_ID_BACK_RIGHT_WHEEL].input.velocity,
+                self.slab.motors[slab_ctypes.MOTOR_ID_FRONT_RIGHT_WHEEL].input.velocity,
                 -self.slab.motors[slab_ctypes.MOTOR_ID_BACK_LEFT_WHEEL].input.velocity,
+                self.slab.motors[slab_ctypes.MOTOR_ID_BACK_RIGHT_WHEEL].input.velocity,
             ],
         )
-
+        # update leg position input
         p.setJointMotorControlArray(
             self.robot,
             self.legs,
@@ -190,7 +204,8 @@ class Simulation:
         self.update_imu()
         self.update_motors()
         libslab.slab_update(ctypes.byref(self.slab))
-        # print_ctype(self.slab.imu)
+        print_ctype(self.slab.motors[0])
+        print_ctype(self.slab.motors[1])
         # print_ctype(self.slab.input)
 
     def run(self):
