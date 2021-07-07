@@ -84,15 +84,16 @@ class Simulation:
         # add torque sensor to wheels
         for wheel in self.wheels:
             p.enableJointForceTorqueSensor(self.robot, wheel)
-        # start with legs folded
-        for leg in self.legs:
-            p.resetJointState(self.robot, leg, -np.pi, 0)
-        # reset camera
-        p.resetDebugVisualizerCamera(5, 50, -35, (0, 0, 0))
         self.slab = slab_ctypes.Slab()
+        # start with legs folded
+        for i, leg in enumerate(self.legs):
+            p.resetJointState(self.robot, leg, -np.pi, 0)
+            self.slab.input.leg_positions[i] = -np.pi
         self.slab.config.max_wheel_speed = 40  # rad/s
         self.slab.config.wheel_diameter = 0.165  # m
         self.slab.config.wheel_distance = 0.4  # m
+        # reset camera
+        p.resetDebugVisualizerCamera(5, 50, -35, (0, 0, 0))
 
     def handle_center_button(self):
         button_count = p.readUserDebugParameter(self.center_button)
@@ -196,6 +197,24 @@ class Simulation:
         self.slab.input.angular_velocity = dpad[1] / (
             0.5 * self.slab.config.wheel_distance
         )
+        stick = np.array(
+            [
+                self.inputs.get("ABS_X", 127),
+                self.inputs.get("ABS_Y", 127),
+                self.inputs.get("ABS_RX", 127),
+                self.inputs.get("ABS_RY", 127),
+            ]
+        )
+        stick -= 128
+        stick[(stick < 10) & (stick > -10)] = 0
+        self.slab.input.leg_positions[0] -= stick[1] / (128 * 200)
+        self.slab.input.leg_positions[1] -= stick[3] / (128 * 200)
+        self.slab.input.leg_positions[0] = np.clip(
+            self.slab.input.leg_positions[0], -np.pi, np.pi
+        )
+        self.slab.input.leg_positions[1] = np.clip(
+            self.slab.input.leg_positions[1], -np.pi, np.pi
+        )
 
     def update_slab(self):
         if self.steps % self.step_divider > 0:
@@ -204,8 +223,8 @@ class Simulation:
         self.update_imu()
         self.update_motors()
         libslab.slab_update(ctypes.byref(self.slab))
-        print_ctype(self.slab.motors[0])
-        print_ctype(self.slab.motors[1])
+        # print_ctype(self.slab.motors[0])
+        # print_ctype(self.slab.motors[1])
         # print_ctype(self.slab.input)
 
     def run(self):

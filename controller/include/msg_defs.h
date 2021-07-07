@@ -81,7 +81,7 @@ MXGEN(struct, SlabConfig)
 #define TYPEDEF_SlabInput(X, _)  \
     X(float, linear_velocity, )  \
     X(float, angular_velocity, ) \
-    X(float, legs_position, [2]) \
+    X(float, leg_positions, [2]) \
     X(float, pitch_angle, )
 MXGEN(struct, SlabInput)
 
