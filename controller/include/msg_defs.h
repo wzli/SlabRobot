@@ -37,6 +37,7 @@ MXGEN(struct, ImuMsg)
     X(uint32_t, error, )          \
     X(uint32_t, state, )
 MXGEN(struct, MotorStatus)
+
 #define TYPEDEF_MotorEstimate(X, _) \
     X(float, position, )            \
     X(float, velocity, )
@@ -84,11 +85,17 @@ typedef enum {
     GAMEPAD_BUTTON_SQUARE,
 } GamepadButton;
 
-#define TYPEDEF_GamepadMsg(X, _) \
-    X(uint16_t, buttons, )       \
-    X(int8_t, left_stick, [2])   \
-    X(int8_t, right_stick, [2])  \
-    X(uint8_t, trigger, [2])     \
+#define TYPEDEF_GamepadStick(X, _) \
+    X(int8_t, x, )                 \
+    X(int8_t, y, )
+MXGEN(struct, GamepadStick)
+
+#define TYPEDEF_GamepadMsg(X, _)   \
+    X(uint16_t, buttons, )         \
+    X(GamepadStick, left_stick, )  \
+    X(GamepadStick, right_stick, ) \
+    X(uint8_t, left_trigger, )     \
+    X(uint8_t, right_trigger, )    \
     X(uint8_t, stick_threshold, )
 MXGEN(struct, GamepadMsg)
 
@@ -100,22 +107,34 @@ typedef enum {
     MOTOR_ID_FRONT_RIGHT_WHEEL,
     MOTOR_ID_BACK_LEFT_WHEEL,
     MOTOR_ID_BACK_RIGHT_WHEEL,
-} MotorID;
+} MotorId;
 
 typedef enum {
     CONTROLLER_MODE_GROUND,
     CONTROLLER_MODE_BALANCE,
 } ControllerMode;
 
+typedef enum {
+    AXIS_REMAP_X,
+    AXIS_REMAP_Y,
+    AXIS_REMAP_Z,
+    AXIS_REMAP_NEG_FLAG = 4,
+    AXIS_REMAP_NEG_X = 4,
+    AXIS_REMAP_NEG_Y,
+    AXIS_REMAP_NEG_Z,
+} AxisRemap;
+
 // wheel speed in (rad/s)
 // wheel radius in (m)
 // wheel distance in (m)
-#define TYPEDEF_SlabConfig(X, _) \
-    X(float, max_wheel_speed, )  \
-    X(float, wheel_diameter, )   \
-    X(float, wheel_distance, )   \
-    X(float, max_leg_position, ) \
-    X(float, min_leg_position, )
+#define TYPEDEF_SlabConfig(X, _)  \
+    X(float, max_wheel_speed, )   \
+    X(float, wheel_diameter, )    \
+    X(float, wheel_distance, )    \
+    X(float, max_leg_position, )  \
+    X(float, min_leg_position, )  \
+    X(float, leg_position_gain, ) \
+    X(int8_t, imu_axis_remap, [3])
 MXGEN(struct, SlabConfig)
 
 #define TYPEDEF_SlabInput(X, _)  \

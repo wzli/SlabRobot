@@ -89,12 +89,23 @@ class Simulation:
         for i, leg in enumerate(self.legs):
             p.resetJointState(self.robot, leg, -np.pi, 0)
             self.slab.input.leg_positions[i] = -np.pi
+            self.slab.motors[i].input.position = -np.pi
         # set slab config
         self.slab.config.max_wheel_speed = 40  # rad/s
         self.slab.config.wheel_diameter = 0.165  # m
         self.slab.config.wheel_distance = 0.4  # m
         self.slab.config.max_leg_position = np.pi  # rad
         self.slab.config.min_leg_position = -np.pi  # rad
+        self.slab.config.leg_position_gain = 0.02
+        self.slab.config.imu_axis_remap[
+            slab_ctypes.AXIS_REMAP_X
+        ] = slab_ctypes.AXIS_REMAP_Y
+        self.slab.config.imu_axis_remap[
+            slab_ctypes.AXIS_REMAP_Y
+        ] = slab_ctypes.AXIS_REMAP_NEG_X
+        self.slab.config.imu_axis_remap[
+            slab_ctypes.AXIS_REMAP_Z
+        ] = slab_ctypes.AXIS_REMAP_Z
         self.slab.gamepad.stick_threshold = 10  # 0 - 255
         # reset camera
         p.resetDebugVisualizerCamera(5, 50, -35, (0, 0, 0))
@@ -129,6 +140,7 @@ class Simulation:
         self.slab.imu.orientation.qy = orn[1]
         self.slab.imu.orientation.qz = orn[2]
         self.slab.imu.orientation.qw = orn[3]
+        # TODO transform to local frame
         # update angular velocity
         lin_vel, ang_vel = p.getBaseVelocity(self.robot)
         self.slab.imu.angular_velocity.x = ang_vel[0]
@@ -174,7 +186,6 @@ class Simulation:
                 self.slab.motors[slab_ctypes.MOTOR_ID_FRONT_LEGS].input.position,
                 self.slab.motors[slab_ctypes.MOTOR_ID_BACK_LEGS].input.position,
             ],
-            positionGains=[0.01, 0.01],
         )
 
     def update_inputs(self):
@@ -204,12 +215,12 @@ class Simulation:
             | (self.inputs.get("BTN_SOUTH", 0) << slab_ctypes.GAMEPAD_BUTTON_CROSS)
             | (self.inputs.get("BTN_WEST", 0) << slab_ctypes.GAMEPAD_BUTTON_SQUARE)
         )
-        self.slab.gamepad.left_stick[0] = self.inputs.get("ABS_X", 128) - 128
-        self.slab.gamepad.left_stick[1] = self.inputs.get("ABS_Y", 128) - 128
-        self.slab.gamepad.right_stick[0] = self.inputs.get("ABS_RX", 128) - 128
-        self.slab.gamepad.right_stick[1] = self.inputs.get("ABS_RY", 128) - 128
-        self.slab.gamepad.trigger[0] = self.inputs.get("ABS_Z", 0)
-        self.slab.gamepad.trigger[1] = self.inputs.get("ABS_RZ", 0)
+        self.slab.gamepad.left_stick.x = self.inputs.get("ABS_X", 128) - 128
+        self.slab.gamepad.left_stick.y = self.inputs.get("ABS_Y", 128) - 128
+        self.slab.gamepad.right_stick.x = self.inputs.get("ABS_RX", 128) - 128
+        self.slab.gamepad.right_stick.y = self.inputs.get("ABS_RY", 128) - 128
+        self.slab.gamepad.left_trigger = self.inputs.get("ABS_Z", 0)
+        self.slab.gamepad.right_trigger = self.inputs.get("ABS_RZ", 0)
 
     def update_slab(self):
         if self.steps % self.step_divider > 0:
@@ -221,7 +232,8 @@ class Simulation:
         # print_ctype(self.slab.motors[0])
         # print_ctype(self.slab.motors[1])
         # print_ctype(self.slab.input)
-        # print_ctype(self.slab.input)
+        # print_ctype(self.slab.imu)
+        # print_ctype(self.slab.gamepad)
 
     def run(self):
         while True:
