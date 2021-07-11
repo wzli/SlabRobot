@@ -122,11 +122,11 @@ void slab_update(Slab* slab) {
             break;
     }
     imu_axis_remap(&slab->imu, slab->config.imu_axis_remap);
-    to_euler(slab->imu.orientation);
+    float* q = (float*) &slab->imu.orientation;
     float rot[3 * 3];
-    ROT_FROM_QUAT(rot, (float*) &slab->imu.orientation);
-    // matrix_print(rot, 3, 3);
-    // printf("r %f p %f y %f\n", rot_to_roll(rot), rot_to_pitch(rot), rot_to_yaw(rot));
+    QUAT_TO_ROT(rot, q);
+    printf("a r %f p %f y %f\n", quat_to_roll(q), quat_to_pitch(q), quat_to_yaw(q));
+    printf("b r %f p %f y %f\n", rot_to_roll(rot), rot_to_pitch(rot), rot_to_yaw(rot));
 #if 0
     float a[2 * 2] = {3, 5, -1, 1};
 

@@ -1,7 +1,6 @@
 #pragma once
-//#include <stddef.h>
-//#include <stdint.h>
-#include "msg_defs.h"
+#include <stddef.h>
+#include <stdint.h>
 #include <math.h>
 
 #define ABS(X) ((X) < 0 ? -(X) : (X))
@@ -37,46 +36,42 @@ void* memcpy(void*, const void*, size_t);
         }
 
 // Q [w, x, y, z]
-#define ROT_FROM_QUAT(R, Q)                           \
+#define QUAT_TO_ROT(R, Q)                             \
     (R)[0] = 1 - 2 * (SQR((Q)[2]) + SQR((Q)[3]));     \
     (R)[1] = 2 * ((Q)[1] * (Q)[2] - (Q)[0] * (Q)[3]); \
     (R)[2] = 2 * ((Q)[1] * (Q)[3] + (Q)[0] * (Q)[2]); \
     (R)[3] = 2 * ((Q)[1] * (Q)[2] + (Q)[0] * (Q)[3]); \
     (R)[4] = 1 - 2 * (SQR((Q)[1]) + SQR((Q)[3]));     \
-    (R)[5] = 2 * ((Q)[2] * (Q)[3] + (Q)[0] * (Q)[1]); \
+    (R)[5] = 2 * ((Q)[2] * (Q)[3] - (Q)[0] * (Q)[1]); \
     (R)[6] = 2 * ((Q)[1] * (Q)[3] - (Q)[0] * (Q)[2]); \
-    (R)[7] = 2 * ((Q)[2] * (Q)[3] - (Q)[0] * (Q)[1]); \
+    (R)[7] = 2 * ((Q)[2] * (Q)[3] + (Q)[0] * (Q)[1]); \
     (R)[8] = 1 - 2 * (SQR((Q)[1]) + SQR((Q)[2]));
 
 static inline float rot_to_yaw(float* rot) {
-    return atan2f(rot[1 * 3 + 0], rot[0 * 3 + 0]);
+    return atan2f(rot[3], rot[0]);
 }
 
 static inline float rot_to_pitch(float* rot) {
-    return atan2f(-rot[2 * 3 + 0], sqrtf(SQR(rot[2 * 3 + 1]) + SQR(rot[2 * 3 + 2])));
+    return atan2f(-rot[6], sqrtf(SQR(rot[7]) + SQR(rot[8])));
 }
 
 static inline float rot_to_roll(float* rot) {
-    return atan2f(rot[2 * 3 + 1], rot[2 * 3 + 2]);
+    return atan2f(rot[7], rot[8]);
 }
 
-static inline void to_euler(QuaternionF orn) {
-    // roll (x-axis rotation)
-    float sinr_cosp = 2 * (orn.qw * orn.qx + orn.qy * orn.qz);
-    float cosr_cosp = 1 - 2 * (orn.qx * orn.qx + orn.qy * orn.qy);
-    float roll = atan2f(sinr_cosp, cosr_cosp);
+static inline float quat_to_yaw(float* q) {
+    float siny_cosp = 2 * (q[0] * q[3] + q[1] * q[2]);
+    float cosy_cosp = 1 - 2 * (q[2] * q[2] + q[3] * q[3]);
+    return atan2f(siny_cosp, cosy_cosp);
+}
 
-    // pitch (y-axis rotation)
-    float sinp = 2 * (orn.qw * orn.qy - orn.qz * orn.qx);
-    float pitch;
-    if (fabs(sinp) >= 1)
-        pitch = M_PI / 2 * SGN(sinp);  // use 90 degrees if out of range
-    else
-        pitch = asinf(sinp);
+static inline float quat_to_pitch(float* q) {
+    float sinp = 2 * (q[0] * q[2] - q[3] * q[1]);
+    return fabs(sinp) < 1 ? asinf(sinp) : M_PI / 2 * SGN(sinp);
+}
 
-    // yaw (z-axis rotation)
-    float siny_cosp = 2 * (orn.qw * orn.qz + orn.qx * orn.qy);
-    float cosy_cosp = 1 - 2 * (orn.qy * orn.qy + orn.qz * orn.qz);
-    float yaw = atan2f(siny_cosp, cosy_cosp);
-    printf("r %f p %f y %f\n", roll, pitch, yaw);
+static inline float quat_to_roll(float* q) {
+    float sinr_cosp = 2 * (q[0] * q[1] + q[2] * q[3]);
+    float cosr_cosp = 1 - 2 * (q[1] * q[1] + q[2] * q[2]);
+    return atan2f(sinr_cosp, cosr_cosp);
 }
