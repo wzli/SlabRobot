@@ -101,6 +101,8 @@ class Simulation:
         self.slab.config.max_wheel_speed = 40  # rad/s
         self.slab.config.wheel_diameter = 0.165  # m
         self.slab.config.wheel_distance = 0.4  # m
+        self.slab.config.body_length = 0.4  # m
+        self.slab.config.leg_length = 0.35  # m
         self.slab.config.max_leg_position = np.pi  # rad
         self.slab.config.min_leg_position = -np.pi  # rad
         self.slab.config.leg_position_gain = 0.1
@@ -241,6 +243,7 @@ class Simulation:
         # print_ctype(self.slab.input)
         # print_ctype(self.slab.imu)
         # print_ctype(self.slab.gamepad)
+        print_ctype(self.slab.wheel_to_wheel)
 
     def run(self):
         while True:

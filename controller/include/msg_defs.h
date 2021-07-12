@@ -131,6 +131,8 @@ typedef enum {
     X(float, max_wheel_speed, )   \
     X(float, wheel_diameter, )    \
     X(float, wheel_distance, )    \
+    X(float, body_length, )       \
+    X(float, leg_length, )        \
     X(float, max_leg_position, )  \
     X(float, min_leg_position, )  \
     X(float, leg_position_gain, ) \
@@ -151,6 +153,8 @@ MXGEN(struct, SlabInput)
     X(GamepadMsg, gamepad, )      \
     X(uint8_t, controller_mode, ) \
     X(bool, inverted, )           \
+    X(QuaternionF, orientation, ) \
+    X(Vector3F, wheel_to_wheel, ) \
     X(SlabConfig, config, )       \
     X(SlabInput, input, )
 MXGEN(struct, Slab)

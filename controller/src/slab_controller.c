@@ -115,10 +115,7 @@ static void slab_ground_controller_update(Slab* slab) {
 }
 
 static void slab_balance_controller_update(Slab* slab) {
-    float q[4] = {slab->imu.orientation.qw};
-    axis_remap(
-            (Vector3F*) &q[1], (Vector3F*) &slab->imu.orientation.qx, slab->config.imu_axis_remap);
-    float roll = quat_to_roll(q);
+    float roll = quat_to_roll((float*) &slab->orientation);
     float desired_roll = -M_PI / 2;
     float error = (desired_roll - roll);
     float gain = 30.0f;
@@ -128,8 +125,24 @@ static void slab_balance_controller_update(Slab* slab) {
     printf("r %f e %f v %f\n", roll, error, slab->motors[2].input.velocity);
 }
 
+static void slab_wheel_to_wheel(Slab* slab) {
+    float wheel_to_wheel[3] = {0,
+            slab->config.body_length +
+                    slab->config.leg_length *
+                            (cosf(slab->motors[MOTOR_ID_FRONT_LEGS].estimate.position) +
+                                    cosf(slab->motors[MOTOR_ID_BACK_LEGS].estimate.position)),
+            slab->config.leg_length *
+                    (sinf(slab->motors[MOTOR_ID_FRONT_LEGS].estimate.position) +
+                            sinf(slab->motors[MOTOR_ID_BACK_LEGS].estimate.position))};
+    QUAT_TRANSFORM((float*) &slab->wheel_to_wheel, (float*) &slab->orientation, wheel_to_wheel);
+}
+
 void slab_update(Slab* slab) {
     slab_gamepad_input_update(slab);
+    slab->orientation.qw = slab->imu.orientation.qw;
+    axis_remap((Vector3F*) &slab->orientation.qx, (Vector3F*) &slab->imu.orientation.qx,
+            slab->config.imu_axis_remap);
+    slab_wheel_to_wheel(slab);
     switch (slab->controller_mode) {
         case CONTROLLER_MODE_GROUND:
             slab_ground_controller_update(slab);
