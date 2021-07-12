@@ -10,14 +10,14 @@
 #define SGN(X) (((X) > 0) - ((X) < 0))
 #define MAX(X, Y) ((X) > (Y) ? (X) : (Y))
 #define MIN(X, Y) ((X) < (Y) ? (X) : (Y))
-#define CLAMP(X, MIN, MAX) ((X) < (MIN) ? (MIN) : (X) > (MAX) ? (MAX) : (X))
+#define CLAMP(X, LO, HI) ((X) < (LO) ? (LO) : (X) > (HI) ? (HI) : (X))
 
 #define XOR_SWAP_CASE(X, Y, W)                        \
     case (W) / 8:                                     \
         *(uint##W##_t*) &(X) ^= *(uint##W##_t*) &(Y); \
         *(uint##W##_t*) &(Y) ^= *(uint##W##_t*) &(X); \
         *(uint##W##_t*) &(X) ^= *(uint##W##_t*) &(Y); \
-        break;
+        break
 
 #define XOR_SWAP(X, Y)                              \
     switch (sizeof(X) * (sizeof(X) == sizeof(Y))) { \
@@ -31,28 +31,22 @@
 
 // vector functions
 
-#define VEC_ELEMENT_WISE(OUT, IN, OP, LEN)         \
-    for (int elem_i = 0; elem_i < (LEN); ++elem_i) \
-    (OUT)[elem_i] = OP((IN)[elem_i])
+#define VEC_ITERATE(INIT, LEN) for (int VEC_I = INIT; VEC_I < (LEN); ++VEC_I)
 
-#define VEC_ADD(OUT, IN, SCALAR, LEN) VEC_ELEMENT_WISE(OUT, IN, (SCALAR) +, LEN)
+#define VEC_ADD(OUT, IN, SCALAR, LEN) VEC_ITERATE(0, LEN)(OUT)[VEC_I] = (IN)[VEC_I] + (SCALAR)
 
-#define VEC_MULTIPLY(OUT, IN, SCALAR, LEN) VEC_ELEMENT_WISE(OUT, IN, (SCALAR)*, LEN)
+#define VEC_MULTIPLY(OUT, IN, SCALAR, LEN) VEC_ITERATE(0, LEN)(OUT)[VEC_I] = (IN)[VEC_I] * (SCALAR)
 
-#define VEC_NEGATE(OUT, IN, LEN) VEC_ELEMENT_WISE(OUT, IN, -, LEN)
+#define VEC_CLAMP(OUT, IN, LO, HI, LEN) VEC_ITERATE(0, LEN)(OUT)[VEC_I] = CLAMP((IN)[VEC_I], LO, HI)
 
-#define VEC_REDUCE(OUT, IN, OP, LEN)                         \
-    for (int elem_i = ((OUT) = 0); elem_i < (LEN); ++elem_i) \
-    (OUT) = OP((IN)[elem_i])
+#define VEC_MAX(OUT, IN, LEN) VEC_ITERATE(((OUT) = (IN)[0], 1), LEN)(OUT) = MAX(OUT, (IN)[VEC_I])
 
-#define VEC_SUM(OUT, IN, LEN) VEC_REDUCE(OUT, IN, (OUT) +, LEN)
+#define VEC_MIN(OUT, IN, LEN) VEC_ITERATE(((OUT) = (IN)[0], 1), LEN)(OUT) = MIN(OUT, (IN)[VEC_I])
 
-#define VEC_MAX(OUT, IN, LEN) VEC_REDUCE(OUT, IN, (OUT) > (IN)[elem_i] ? (OUT) :, LEN)
+#define VEC_SUM(OUT, IN, LEN) VEC_ITERATE(((OUT) = (IN)[0], 1), LEN)(OUT) += (IN)[VEC_I]
 
-// todo this is broken, reduce requries init
-#define VEC_MIN(OUT, IN, LEN) VEC_REDUCE(OUT, IN, (OUT) < (IN)[elem_i] ? (OUT) :, LEN)
-
-#define VEC_DOT(OUT, A, B, LEN, STRIDE) VEC_REDUCE(OUT, A, (OUT) + (B)[elem_i * (STRIDE)]*, LEN)
+#define VEC_DOT(OUT, A, B, LEN, STRIDE) \
+    VEC_ITERATE(((OUT) = 0), LEN)(OUT) += (A)[VEC_I] * (B)[VEC_I * (STRIDE)]
 
 #define VEC3_DOT(A, B) ((A)[0] * (B)[0] + (A)[1] * (B)[1] + (A)[2] * (B)[2])
 
@@ -74,14 +68,14 @@ static inline float vec_norm(const float* v, int len) {
 }
 
 static inline float vec_distance(const float* a, const float* b, int len) {
-    float a_to_b[len];
-    VEC_ADD(a_to_b, b, -a[elem_i], len);
-    return vec_norm(a_to_b, len);
+    float ab[len];
+    VEC_ADD(ab, b, -a[VEC_I], len);
+    return vec_norm(ab, len);
 }
 
 static inline void vec_normalize(float* out, const float* in, int len) {
-    float norm = vec_norm(in, len);
-    VEC_ELEMENT_WISE(out, in, (1 / norm)*, len);
+    float inv_norm = 1 / vec_norm(in, len);
+    VEC_MULTIPLY(out, in, inv_norm, len);
 }
 
 static inline float vec_average(const float* v, int len) {
@@ -115,21 +109,20 @@ static inline float rot_to_roll(const float* rot) {
 
 // quaternion functions [w, x, y, z]
 
-#define QUAT_MULTIPLY(OUT, A, B)                                                                 \
-    do {                                                                                         \
-        (OUT)[0] = (A)[0] * (B)[0] - VEC3_DOT((A) + 1, (B) + 1);                                 \
-        VEC3_CROSS((OUT) + 1, (A) + 1, (B) + 1);                                                 \
-        VEC_ELEMENT_WISE(                                                                        \
-                (OUT) + 1, (OUT) + 1, (A)[0] * (B)[elem_i + 1] + (B)[0] * (A)[elem_i + 1] +, 3); \
+#define QUAT_MULTIPLY(OUT, A, B)                                                    \
+    do {                                                                            \
+        (OUT)[0] = (A)[0] * (B)[0] - VEC3_DOT((A) + 1, (B) + 1);                    \
+        VEC3_CROSS((OUT) + 1, (A) + 1, (B) + 1);                                    \
+        VEC_ITERATE(1, 4)(OUT)[VEC_I] += (A)[0] * (B)[VEC_I] + (B)[0] * (A)[VEC_I]; \
     } while (0)
 
-#define QUAT_TRANSFORM(OUT, Q, V)                                            \
-    do {                                                                     \
-        VEC3_CROSS(OUT, (Q) + 1, V);                                         \
-        VEC_ELEMENT_WISE(OUT, OUT,                                           \
-                (2 * VEC3_DOT((Q) + 1, V) * (Q)[elem_i + 1]) +               \
-                        ((2 * SQR((Q)[0]) - 1) * (V)[elem_i]) + 2 * (Q)[0]*, \
-                3);                                                          \
+#define QUAT_TRANSFORM(OUT, Q, V)                                                                \
+    do {                                                                                         \
+        VEC3_CROSS(OUT, (Q) + 1, V);                                                             \
+        VEC_ITERATE(0, 3) {                                                                      \
+            (OUT)[VEC_I] = 2 * ((Q)[0] * (OUT)[VEC_I] + VEC3_DOT((Q) + 1, V) * (Q)[VEC_I + 1]) + \
+                           ((2 * SQR((Q)[0]) - 1) * (V)[VEC_I]);                                 \
+        }                                                                                        \
     } while (0)
 
 #define QUAT_TO_ROTATION_MATRIX(R, Q)                     \
@@ -145,11 +138,7 @@ static inline float rot_to_roll(const float* rot) {
         (R)[8] = 1 - 2 * (SQR((Q)[1]) + SQR((Q)[2]));     \
     } while (0)
 
-#define QUAT_CONJUGATE(OUT, IN)         \
-    do {                                \
-        (OUT)[0] = (IN)[0];             \
-        VEC_NEGATE(OUT + 1, IN + 1, 3); \
-    } while (0)
+#define QUAT_CONJUGATE(OUT, IN) VEC_ITERATE(((OUT)[0] = (IN)[0], 1), 4)(OUT)[VEC_I] = -(IN)[VEC_I]
 
 static inline void quat_normalize(float* q) {
     vec_normalize(q, q, 4);
@@ -158,7 +147,7 @@ static inline void quat_normalize(float* q) {
 static inline void quat_from_angle_axis(float* q, float angle, const float* axis) {
     q[0] = sinf(angle / 2);
     vec_normalize(q + 1, axis, 3);
-    VEC_ELEMENT_WISE(q + 1, q + 1, q[0]*, 3);
+    VEC_MULTIPLY(q + 1, q + 1, q[0], 3);
     q[0] = cosf(angle / 2);
 }
 

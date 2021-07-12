@@ -135,16 +135,17 @@ void slab_update(Slab* slab) {
     // float d[4] = {4, 3.9, -1, -3};
 
     quat_normalize(q);
-    float e[4] = {1, 2, 3, 4};
+    float e[4] = {0, 1, 0, 0};
+    // float e[4] = {1, 2, 3, 4};
     float f[4] = {0};
     float g[4] = {0};
     QUAT_CONJUGATE(f, q);
     QUAT_MULTIPLY(g, e, f);
     QUAT_MULTIPLY(f, q, g);
     VEC_TRANSFORM(g + 1, rot, e + 1, 3, 3, 1);
-    g[0] = 0;
-
     // QUAT_TRANSFORM(f + 1, q, e + 1);
+    f[0] = 0;
+    g[0] = 0;
 
     // MAT_TRANSPOSE(a, 2);
 
@@ -153,10 +154,11 @@ void slab_update(Slab* slab) {
     // quat_from_angle_axis(d, M_PI / 2, c);
     // QUAT_MULTIPLY(e, c, d);
     puts("");
-    // matrix_print(f, 1, 4);
-    // matrix_print(g, 1, 4);
+    VEC_CLAMP(f, f, -0.1, 0.1, 4);
+    matrix_print(f, 1, 4);
+    matrix_print(g, 1, 4);
 
-    VEC_MULTIPLY(e, e, e[elem_i], 4);
+    VEC_MULTIPLY(e, e, e[VEC_I], 4);
     matrix_print(e, 1, 4);
     float k[4] = {0};
     float dist = vec_distance(k, e, 4);
