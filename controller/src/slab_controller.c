@@ -12,22 +12,22 @@ void matrix_print(float* m, int rows, int cols) {
     puts("");
 }
 
-static void axis_remap(Vector3F* v, const int8_t* remap) {
-    Vector3F tmp = *v;
+static void axis_remap(Vector3F* out, const Vector3F* in, const int8_t* remap) {
     for (int i = 0; i < 3; ++i) {
         int axis = remap[i] & 3;
         assert(axis < 3);
-        ((float*) v)[i] = ((float*) &tmp)[axis];
+        ((float*) out)[i] = ((float*) in)[axis];
         if (remap[i] & AXIS_REMAP_NEG_FLAG) {
-            ((float*) v)[i] *= -1;
+            ((float*) out)[i] *= -1;
         }
     }
 }
 
 static void imu_axis_remap(ImuMsg* imu, const int8_t* remap) {
-    axis_remap((Vector3F*) &imu->orientation.qx, remap);
-    axis_remap(&imu->linear_acceleration, remap);
-    axis_remap(&imu->angular_velocity, remap);
+    ImuMsg tmp = *imu;
+    axis_remap((Vector3F*) &imu->orientation.qx, (Vector3F*) &tmp.orientation.qx, remap);
+    axis_remap(&imu->linear_acceleration, &tmp.linear_acceleration, remap);
+    axis_remap(&imu->angular_velocity, &tmp.angular_velocity, remap);
 }
 
 static void slab_gamepad_input_update(Slab* slab) {
@@ -124,25 +124,51 @@ void slab_update(Slab* slab) {
     imu_axis_remap(&slab->imu, slab->config.imu_axis_remap);
     float* q = (float*) &slab->imu.orientation;
     float rot[3 * 3];
-    QUAT_TO_ROT(rot, q);
+    QUAT_TO_ROTATION_MATRIX(rot, q);
     printf("a r %f p %f y %f\n", quat_to_roll(q), quat_to_pitch(q), quat_to_yaw(q));
     printf("b r %f p %f y %f\n", rot_to_roll(rot), rot_to_pitch(rot), rot_to_yaw(rot));
-#if 0
-    float a[2 * 2] = {3, 5, -1, 1};
 
-    float b[2 * 3] = {-2, 2, 3, 3, 5, -2};
+#if 1
+    // float a[2 * 2] = {3, 5, -1, 1};
+    // float b[2 * 3] = {-2, 2, 3, 3, 5, -2};
+    // float c[4] = {-5, 3, 4, 3};
+    // float d[4] = {4, 3.9, -1, -3};
 
-    MAT_TRANS(a, 2);
+    quat_normalize(q);
+    float e[4] = {1, 2, 3, 4};
+    float f[4] = {0};
+    float g[4] = {0};
+    QUAT_CONJUGATE(f, q);
+    QUAT_MULTIPLY(g, e, f);
+    QUAT_MULTIPLY(f, q, g);
+    VEC_TRANSFORM(g + 1, rot, e + 1, 3, 3, 1);
+    g[0] = 0;
 
-    matrix_print(a, 2, 2);
-    matrix_print(b, 2, 3);
+    // QUAT_TRANSFORM(f + 1, q, e + 1);
 
-    float c[2 * 3] = {0};
+    // MAT_TRANSPOSE(a, 2);
+
+    // MAT_ADD(d, a, a, 2, 2);
+    // matrix_print(c, 3, 1);
+    // quat_from_angle_axis(d, M_PI / 2, c);
+    // QUAT_MULTIPLY(e, c, d);
+    puts("");
+    // matrix_print(f, 1, 4);
+    // matrix_print(g, 1, 4);
+
+    VEC_MULTIPLY(e, e, e[elem_i], 4);
+    matrix_print(e, 1, 4);
+    float k[4] = {0};
+    float dist = vec_distance(k, e, 4);
+    float max, min;
+    VEC_MAX(max, e, 4);
+    VEC_MIN(min, e, 4);
+    printf("%f %f %f\n", dist, max, min);
 
     // VEC_MUL(c, a, b, 2, 2, 3);
-    MAT_MUL(c, a, b, 2, 2, 3);
+    // MAT_MULTIPLY(c, a, b, 2, 2, 3);
 
-    matrix_print(c, 2, 3);
+    // matrix_print(c, 2, 3);
 
     // float out = 0;
     // DOT(out, a, b, 3, 1);
