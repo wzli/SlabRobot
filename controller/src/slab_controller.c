@@ -31,16 +31,6 @@ static void imu_axis_remap(ImuMsg* imu, const int8_t* remap) {
 }
 
 static void slab_gamepad_input_update(Slab* slab) {
-    // parse dpad to normalized vector
-    float dpad_x = ((slab->gamepad.buttons >> GAMEPAD_BUTTON_LEFT) & 1) -
-                   ((slab->gamepad.buttons >> GAMEPAD_BUTTON_RIGHT) & 1);
-    float dpad_y = ((slab->gamepad.buttons >> GAMEPAD_BUTTON_UP) & 1) -
-                   ((slab->gamepad.buttons >> GAMEPAD_BUTTON_DOWN) & 1);
-    if (dpad_x != 0 && dpad_y != 0) {
-        float inv_norm = 1.0f / sqrtf(SQR(dpad_x) + SQR(dpad_y));
-        dpad_x *= inv_norm;
-        dpad_y *= inv_norm;
-    }
     // parse stick to [lx, ly, rx, ry] normalized to 1
     float stick[4] = {0};
     for (int i = 0; i < 4; ++i) {
@@ -49,67 +39,94 @@ static void slab_gamepad_input_update(Slab* slab) {
         }
     }
     // scale velocity input by right trigger)
-    float speed_scale = 0.5f * slab->config.wheel_diameter * slab->config.max_wheel_speed *
-                        slab->gamepad.right_trigger / 255.0f;
-    // map control to velocity input (dpad overrides stick)
-    if (dpad_x != 0 || dpad_y != 0) {
-        slab->input.linear_velocity = dpad_y * speed_scale;
-        slab->input.angular_velocity = dpad_x * speed_scale / (0.5f * slab->config.wheel_distance);
-    } else {
-        slab->input.linear_velocity = stick[1] * speed_scale;
-        slab->input.angular_velocity = stick[0] * speed_scale / slab->config.wheel_distance;
-    }
-    // map stick y-axis to leg positions
-    float leg_positions[2] = {slab->input.leg_positions[0], slab->input.leg_positions[1]};
-    if ((slab->gamepad.buttons >> GAMEPAD_BUTTON_START) & 1) {
-        leg_positions[MOTOR_ID_FRONT_LEGS] = -M_PI;
-        leg_positions[MOTOR_ID_BACK_LEGS] = -M_PI;
-    } else if ((slab->gamepad.buttons >> GAMEPAD_BUTTON_TRIANGLE) & 1) {
-        leg_positions[MOTOR_ID_FRONT_LEGS] = -M_PI / 2;
-        leg_positions[MOTOR_ID_BACK_LEGS] = M_PI / 2;
-    } else if ((slab->gamepad.buttons >> GAMEPAD_BUTTON_SQUARE) & 1) {
-        leg_positions[MOTOR_ID_FRONT_LEGS] = M_PI / 2;
-        leg_positions[MOTOR_ID_BACK_LEGS] = -M_PI / 2;
-    } else {
-#if 0
-        for (int i = 0; i < 2; ++i) {
-            leg_positions[i] = (slab->gamepad.buttons >> (GAMEPAD_BUTTON_L3 + i)) & 1
-                                       ? 0
-                                       : leg_positions[i] - (stick[1 + 2 * i]);
+    if ((slab->gamepad.buttons >> GAMEPAD_BUTTON_R2) & 1) {
+        float speed_scale = 0.5f * slab->config.wheel_diameter * slab->config.max_wheel_speed *
+                            slab->gamepad.right_trigger / 255.0f;
+        // parse dpad to normalized vector
+        float dpad_x = ((slab->gamepad.buttons >> GAMEPAD_BUTTON_LEFT) & 1) -
+                       ((slab->gamepad.buttons >> GAMEPAD_BUTTON_RIGHT) & 1);
+        float dpad_y = ((slab->gamepad.buttons >> GAMEPAD_BUTTON_UP) & 1) -
+                       ((slab->gamepad.buttons >> GAMEPAD_BUTTON_DOWN) & 1);
+        // map control to velocity input (dpad overrides stick)
+        if (dpad_x != 0 || dpad_y != 0) {
+            if (dpad_x != 0 && dpad_y != 0) {
+                float inv_norm = 1.0f / sqrtf(SQR(dpad_x) + SQR(dpad_y));
+                dpad_x *= inv_norm;
+                dpad_y *= inv_norm;
+            }
+            slab->input.linear_velocity = dpad_y * speed_scale;
+            slab->input.angular_velocity =
+                    dpad_x * speed_scale / (0.5f * slab->config.wheel_distance);
+        } else {
+            slab->input.linear_velocity = stick[1] * speed_scale;
+            slab->input.angular_velocity = stick[0] * speed_scale / slab->config.wheel_distance;
         }
-#else
-        leg_positions[MOTOR_ID_FRONT_LEGS] -= (stick[2] - stick[3]);
-        leg_positions[MOTOR_ID_BACK_LEGS] -= (stick[2] + stick[3]);
-
-#endif
     }
-    for (int i = 0; i < 2; ++i) {
-        slab->input.leg_positions[i] +=
-                (leg_positions[i] - slab->input.leg_positions[i]) * slab->config.leg_position_gain;
-        slab->input.leg_positions[i] = CLAMP(slab->input.leg_positions[i],
-                slab->config.min_leg_position, slab->config.max_leg_position);
+    // map controls to leg positions
+    if ((slab->gamepad.buttons >> GAMEPAD_BUTTON_L2) & 1) {
+        float leg_positions[2] = {slab->motors[MOTOR_ID_FRONT_LEGS].estimate.position,
+                slab->motors[MOTOR_ID_BACK_LEGS].estimate.position};
+        if ((slab->gamepad.buttons >> GAMEPAD_BUTTON_START) & 1) {
+            leg_positions[MOTOR_ID_FRONT_LEGS] = -M_PI;
+            leg_positions[MOTOR_ID_BACK_LEGS] = -M_PI;
+        } else if ((slab->gamepad.buttons >> GAMEPAD_BUTTON_TRIANGLE) & 1) {
+            leg_positions[MOTOR_ID_FRONT_LEGS] = -M_PI / 2;
+            leg_positions[MOTOR_ID_BACK_LEGS] = M_PI / 2;
+        } else if ((slab->gamepad.buttons >> GAMEPAD_BUTTON_SQUARE) & 1) {
+            leg_positions[MOTOR_ID_FRONT_LEGS] = M_PI / 2;
+            leg_positions[MOTOR_ID_BACK_LEGS] = -M_PI / 2;
+        } else {
+            leg_positions[MOTOR_ID_FRONT_LEGS] -= (stick[2] - stick[3]);
+            leg_positions[MOTOR_ID_BACK_LEGS] -= (stick[2] + stick[3]);
+        }
+        for (int i = 0; i < 2; ++i) {
+            slab->input.leg_positions[i] = slab->motors[i].estimate.position +
+                                           (leg_positions[i] - slab->motors[i].estimate.position) *
+                                                   slab->config.leg_position_gain *
+                                                   slab->gamepad.left_trigger / 255.0f;
+        }
     }
-    // TODO try j
     // map controller mode to L1 button
     slab->controller_mode = (slab->gamepad.buttons >> GAMEPAD_BUTTON_L1) & 1;
+    // slab->controller_mode = CONTROLLER_MODE_BALANCE;
 }
 
-static void slab_ground_controller_update(Slab* slab) {
+static void slab_differential_drive_update(Slab* slab, float v_lin, float v_ang, uint8_t legs) {
     const float r = slab->config.wheel_diameter / 2;
     const float R = slab->config.wheel_distance / 2;
     const float v_max = slab->config.max_wheel_speed;
-    const float v_lin = slab->input.linear_velocity;
-    const float v_ang = slab->input.angular_velocity;
-    float wheel_speeds[2] = {(v_lin - v_ang * R) / r, (v_lin + v_ang * R) / r};
+    float left_wheel_speed = (v_lin - v_ang * R) / r;
+    float right_wheel_speed = (v_lin + v_ang * R) / r;
+    left_wheel_speed = CLAMP(left_wheel_speed, -v_max, v_max);
+    right_wheel_speed = CLAMP(right_wheel_speed, -v_max, v_max);
+    slab->motors[MOTOR_ID_FRONT_LEFT_WHEEL].input.velocity = (legs & 1) ? left_wheel_speed : 0;
+    slab->motors[MOTOR_ID_FRONT_RIGHT_WHEEL].input.velocity = (legs & 1) ? right_wheel_speed : 0;
+    slab->motors[MOTOR_ID_BACK_LEFT_WHEEL].input.velocity = (legs & 2) ? left_wheel_speed : 0;
+    slab->motors[MOTOR_ID_BACK_RIGHT_WHEEL].input.velocity = (legs & 2) ? right_wheel_speed : 0;
+}
+
+static void slab_ground_controller_update(Slab* slab) {
+    slab_differential_drive_update(slab, slab->input.linear_velocity, slab->input.angular_velocity,
+            (1 << MOTOR_ID_FRONT_LEGS) | (1 << MOTOR_ID_BACK_LEGS));
     for (int i = 0; i < 2; ++i) {
-        wheel_speeds[i] = CLAMP(wheel_speeds[i], -v_max, v_max);
-        slab->motors[MOTOR_ID_FRONT_LEFT_WHEEL + i].input.velocity = wheel_speeds[i];
-        slab->motors[MOTOR_ID_BACK_LEFT_WHEEL + i].input.velocity = wheel_speeds[i];
-        slab->motors[i].input.position = slab->input.leg_positions[i];
+        slab->motors[MOTOR_ID_FRONT_LEGS + i].input.position = CLAMP(slab->input.leg_positions[i],
+                slab->config.min_leg_position, slab->config.max_leg_position);
     }
 }
 
-static void slab_balance_controller_update(Slab* slab) {}
+static void slab_balance_controller_update(Slab* slab) {
+    float q[4] = {slab->imu.orientation.qw};
+    axis_remap(
+            (Vector3F*) &q[1], (Vector3F*) &slab->imu.orientation.qx, slab->config.imu_axis_remap);
+    float roll = quat_to_roll(q);
+    float desired_roll = -M_PI / 2;
+    float error = (desired_roll - roll);
+    float gain = 30.0f;
+    float v_lin = error * gain;
+    slab_differential_drive_update(slab, v_lin, 0, (1 << MOTOR_ID_FRONT_LEGS));
+    // slab_ground_controller_update(slab);
+    printf("r %f e %f v %f\n", roll, error, slab->motors[2].input.velocity);
+}
 
 void slab_update(Slab* slab) {
     slab_gamepad_input_update(slab);
@@ -121,6 +138,7 @@ void slab_update(Slab* slab) {
             slab_balance_controller_update(slab);
             break;
     }
+#if 0
     imu_axis_remap(&slab->imu, slab->config.imu_axis_remap);
     float* q = (float*) &slab->imu.orientation;
     float rot[3 * 3];
@@ -128,7 +146,6 @@ void slab_update(Slab* slab) {
     printf("a r %f p %f y %f\n", quat_to_roll(q), quat_to_pitch(q), quat_to_yaw(q));
     printf("b r %f p %f y %f\n", rot_to_roll(rot), rot_to_pitch(rot), rot_to_yaw(rot));
 
-#if 1
     // float a[2 * 2] = {3, 5, -1, 1};
     // float b[2 * 3] = {-2, 2, 3, 3, 5, -2};
     // float c[4] = {-5, 3, 4, 3};
@@ -154,7 +171,6 @@ void slab_update(Slab* slab) {
     // quat_from_angle_axis(d, M_PI / 2, c);
     // QUAT_MULTIPLY(e, c, d);
     puts("");
-    VEC_CLAMP(f, f, -0.1, 0.1, 4);
     matrix_print(f, 1, 4);
     matrix_print(g, 1, 4);
 

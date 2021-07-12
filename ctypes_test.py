@@ -85,24 +85,31 @@ class Simulation:
         for wheel in self.wheels:
             p.enableJointForceTorqueSensor(self.robot, wheel)
         self.slab = slab_ctypes.Slab()
+        """
         # start with legs folded
         for i, leg in enumerate(self.legs):
             p.resetJointState(self.robot, leg, -np.pi, 0)
             self.slab.input.leg_positions[i] = -np.pi
             self.slab.motors[i].input.position = -np.pi
+        """
+        # stand up orientation
+        pos = (0, 0, 1.2)  # x y z
+        orn = (1, 0, 0, 1)  # qx qy qz qw
+        p.resetBasePositionAndOrientation(self.robot, pos, orn)
+
         # set slab config
         self.slab.config.max_wheel_speed = 40  # rad/s
         self.slab.config.wheel_diameter = 0.165  # m
         self.slab.config.wheel_distance = 0.4  # m
         self.slab.config.max_leg_position = np.pi  # rad
         self.slab.config.min_leg_position = -np.pi  # rad
-        self.slab.config.leg_position_gain = 0.02
+        self.slab.config.leg_position_gain = 0.1
         self.slab.config.imu_axis_remap[
             slab_ctypes.AXIS_REMAP_X
-        ] = slab_ctypes.AXIS_REMAP_Y
+        ] = slab_ctypes.AXIS_REMAP_NEG_X
         self.slab.config.imu_axis_remap[
             slab_ctypes.AXIS_REMAP_Y
-        ] = slab_ctypes.AXIS_REMAP_NEG_X
+        ] = slab_ctypes.AXIS_REMAP_NEG_Y
         self.slab.config.imu_axis_remap[
             slab_ctypes.AXIS_REMAP_Z
         ] = slab_ctypes.AXIS_REMAP_Z
@@ -229,7 +236,7 @@ class Simulation:
         self.update_imu()
         self.update_motors()
         libslab.slab_update(ctypes.byref(self.slab))
-        # print_ctype(self.slab.motors[0])
+        # print_ctype(self.slab.motors[2].estimate)
         # print_ctype(self.slab.motors[1])
         # print_ctype(self.slab.input)
         # print_ctype(self.slab.imu)
