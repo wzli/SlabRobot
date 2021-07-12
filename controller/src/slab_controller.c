@@ -158,6 +158,7 @@ void slab_update(Slab* slab) {
     matrix_print(f, 1, 4);
     matrix_print(g, 1, 4);
 
+    VEC_OUTER(e, e, e, 4, 4);
     VEC_MULTIPLY(e, e, e[VEC_I], 4);
     matrix_print(e, 1, 4);
     float k[4] = {0};
