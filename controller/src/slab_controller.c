@@ -1,4 +1,3 @@
-#include <assert.h>
 #include "math_utils.h"
 #include "slab_controller.h"
 
@@ -23,13 +22,6 @@ static void axis_remap(Vector3F* out, const Vector3F* in, const int8_t* remap) {
     }
 }
 
-static void imu_axis_remap(ImuMsg* imu, const int8_t* remap) {
-    ImuMsg tmp = *imu;
-    axis_remap((Vector3F*) &imu->orientation.qx, (Vector3F*) &tmp.orientation.qx, remap);
-    axis_remap(&imu->linear_acceleration, &tmp.linear_acceleration, remap);
-    axis_remap(&imu->angular_velocity, &tmp.angular_velocity, remap);
-}
-
 static void slab_gamepad_input_update(Slab* slab) {
     // parse stick to [lx, ly, rx, ry] normalized to 1
     float stick[4] = {0};
@@ -38,58 +30,56 @@ static void slab_gamepad_input_update(Slab* slab) {
             stick[i] = -((&slab->gamepad.left_stick.x)[i] + 0.5f) / 127.5f;
         }
     }
-    // scale velocity input by right trigger)
-    if ((slab->gamepad.buttons >> GAMEPAD_BUTTON_R2) & 1) {
-        float speed_scale = 0.5f * slab->config.wheel_diameter * slab->config.max_wheel_speed *
-                            slab->gamepad.right_trigger / 255.0f;
-        // parse dpad to normalized vector
-        float dpad_x = ((slab->gamepad.buttons >> GAMEPAD_BUTTON_LEFT) & 1) -
-                       ((slab->gamepad.buttons >> GAMEPAD_BUTTON_RIGHT) & 1);
-        float dpad_y = ((slab->gamepad.buttons >> GAMEPAD_BUTTON_UP) & 1) -
-                       ((slab->gamepad.buttons >> GAMEPAD_BUTTON_DOWN) & 1);
-        // map control to velocity input (dpad overrides stick)
-        if (dpad_x != 0 || dpad_y != 0) {
-            if (dpad_x != 0 && dpad_y != 0) {
-                float inv_norm = 1.0f / sqrtf(SQR(dpad_x) + SQR(dpad_y));
-                dpad_x *= inv_norm;
-                dpad_y *= inv_norm;
-            }
-            slab->input.linear_velocity = dpad_y * speed_scale;
-            slab->input.angular_velocity =
-                    dpad_x * speed_scale / (0.5f * slab->config.wheel_distance);
-        } else {
-            slab->input.linear_velocity = stick[1] * speed_scale;
-            slab->input.angular_velocity = stick[0] * speed_scale / slab->config.wheel_distance;
-        }
+    // parse dpad to normalized vector
+    float dpad_x = ((slab->gamepad.buttons >> GAMEPAD_BUTTON_LEFT) & 1) -
+                   ((slab->gamepad.buttons >> GAMEPAD_BUTTON_RIGHT) & 1);
+    float dpad_y = ((slab->gamepad.buttons >> GAMEPAD_BUTTON_UP) & 1) -
+                   ((slab->gamepad.buttons >> GAMEPAD_BUTTON_DOWN) & 1);
+    if (dpad_x != 0 && dpad_y != 0) {
+        float inv_norm = 1.0f / sqrtf(SQR(dpad_x) + SQR(dpad_y));
+        dpad_x *= inv_norm;
+        dpad_y *= inv_norm;
     }
-    // map controls to leg positions
-    if ((slab->gamepad.buttons >> GAMEPAD_BUTTON_L2) & 1) {
-        float leg_positions[2] = {slab->motors[MOTOR_ID_FRONT_LEGS].estimate.position,
-                slab->motors[MOTOR_ID_BACK_LEGS].estimate.position};
-        if ((slab->gamepad.buttons >> GAMEPAD_BUTTON_START) & 1) {
-            leg_positions[MOTOR_ID_FRONT_LEGS] = -M_PI;
-            leg_positions[MOTOR_ID_BACK_LEGS] = -M_PI;
-        } else if ((slab->gamepad.buttons >> GAMEPAD_BUTTON_TRIANGLE) & 1) {
-            leg_positions[MOTOR_ID_FRONT_LEGS] = -M_PI / 2;
-            leg_positions[MOTOR_ID_BACK_LEGS] = M_PI / 2;
-        } else if ((slab->gamepad.buttons >> GAMEPAD_BUTTON_SQUARE) & 1) {
-            leg_positions[MOTOR_ID_FRONT_LEGS] = M_PI / 2;
-            leg_positions[MOTOR_ID_BACK_LEGS] = -M_PI / 2;
-        } else {
-            leg_positions[MOTOR_ID_FRONT_LEGS] -= (stick[2] - stick[3]);
-            leg_positions[MOTOR_ID_BACK_LEGS] -= (stick[2] + stick[3]);
-        }
-        for (int i = 0; i < 2; ++i) {
-            slab->input.leg_positions[i] = slab->motors[i].estimate.position +
-                                           (leg_positions[i] - slab->motors[i].estimate.position) *
-                                                   (slab->config.max_leg_speed / 10) *
-                                                   (slab->gamepad.left_trigger / 255.0f);
-        }
+    // scale velocity input to max wheel speed
+    float speed_scale = 0.5f * slab->config.wheel_diameter * slab->config.max_wheel_speed;
+    // map L-stick to velocity input (dpad overrides stick)
+    if (dpad_x != 0 || dpad_y != 0) {
+        speed_scale *= slab->gamepad.left_trigger / 255.0f;
+        slab->input.linear_velocity = dpad_y * speed_scale;
+        slab->input.angular_velocity = dpad_x * speed_scale / (0.5f * slab->config.wheel_distance);
+    } else {
+        slab->input.linear_velocity = stick[1] * speed_scale;
+        slab->input.angular_velocity = stick[0] * speed_scale / slab->config.wheel_distance;
+    }
+    // map R-stick and buttons to leg positions
+    float leg_positions[2] = {slab->motors[MOTOR_ID_FRONT_LEGS].estimate.position,
+            slab->motors[MOTOR_ID_BACK_LEGS].estimate.position};
+    float throttle = (slab->gamepad.right_trigger / 255.0f);
+    if ((slab->gamepad.buttons >> GAMEPAD_BUTTON_START) & 1) {
+        leg_positions[MOTOR_ID_FRONT_LEGS] = -M_PI;
+        leg_positions[MOTOR_ID_BACK_LEGS] = -M_PI;
+    } else if ((slab->gamepad.buttons >> GAMEPAD_BUTTON_TRIANGLE) & 1) {
+        leg_positions[MOTOR_ID_FRONT_LEGS] = -M_PI / 2;
+        leg_positions[MOTOR_ID_BACK_LEGS] = M_PI / 2;
+    } else if ((slab->gamepad.buttons >> GAMEPAD_BUTTON_SQUARE) & 1) {
+        leg_positions[MOTOR_ID_FRONT_LEGS] = M_PI / 2;
+        leg_positions[MOTOR_ID_BACK_LEGS] = -M_PI / 2;
+    } else {
+        leg_positions[MOTOR_ID_FRONT_LEGS] -= (stick[2] - stick[3]);
+        leg_positions[MOTOR_ID_BACK_LEGS] -= (stick[2] + stick[3]);
+        throttle = 1;
+    }
+    for (int i = 0; i < 2; ++i) {
+        slab->input.leg_positions[i] = slab->motors[i].estimate.position +
+                                       (leg_positions[i] - slab->motors[i].estimate.position) *
+                                               (slab->config.max_leg_speed / 10) * throttle;
     }
     if ((slab->gamepad.buttons >> GAMEPAD_BUTTON_CIRCLE) & 1) {
         slab->input.body_incline += 0.005;
+        slab->state.speed_error_integral += 0.01 / slab->config.speed_i_gain;
     } else if ((slab->gamepad.buttons >> GAMEPAD_BUTTON_CROSS) & 1) {
         slab->input.body_incline -= 0.005;
+        slab->state.speed_error_integral -= 0.01 / slab->config.speed_i_gain;
     }
 }
 

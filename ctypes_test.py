@@ -121,7 +121,7 @@ class Simulation:
         self.slab.config.incline_p_gain = p.readUserDebugParameter(self.incline_kp)
         self.slab.config.speed_p_gain = p.readUserDebugParameter(self.speed_kp)
         self.slab.config.speed_i_gain = p.readUserDebugParameter(self.speed_ki)
-        self.slab.config.gamepad_stick_threshold = 10  # 0 - 255
+        self.slab.config.joystick_threshold = 10  # 0 - 255
         # reset camera
         p.resetDebugVisualizerCamera(5, 50, -35, (0, 0, 0))
 
@@ -247,9 +247,9 @@ class Simulation:
         libslab.slab_update(ctypes.byref(self.slab))
         # print_ctype(self.slab.motors[2].estimate)
         # print_ctype(self.slab.motors[1])
-        # print_ctype(self.slab.input)
+        print_ctype(self.slab.input)
         # print_ctype(self.slab.imu)
-        # print_ctype(self.slab.gamepad)
+        print_ctype(self.slab.gamepad)
         print_ctype(self.slab.state)
         print_ctype(self.slab.motors[2].estimate.velocity)
 
