@@ -37,6 +37,9 @@ class Simulation:
         self.center_button_count = 0
         self.center_button = p.addUserDebugParameter("center", 1, 0, 0)
         self.sim_rate = p.addUserDebugParameter("sim_rate", 0, 5, 1)
+        self.incline_kp = p.addUserDebugParameter("Incline Kp", 0, 50, 30)
+        self.speed_kp = p.addUserDebugParameter("Speed Kp", 0, 1.0, 0.6)
+        self.speed_ki = p.addUserDebugParameter("Speed Ki", 0, 0.02, 0.003)
         # reset
         self.step_divider = 3
         self.reset()
@@ -99,13 +102,13 @@ class Simulation:
 
         # set slab config
         self.slab.config.max_wheel_speed = 40  # rad/s
+        self.slab.config.max_leg_speed = 9  # rad/s
         self.slab.config.wheel_diameter = 0.165  # m
         self.slab.config.wheel_distance = 0.4  # m
         self.slab.config.body_length = 0.4  # m
         self.slab.config.leg_length = 0.35  # m
         self.slab.config.max_leg_position = np.pi  # rad
         self.slab.config.min_leg_position = -np.pi  # rad
-        self.slab.config.leg_position_gain = 0.1
         self.slab.config.imu_axis_remap[
             slab_ctypes.AXIS_REMAP_X
         ] = slab_ctypes.AXIS_REMAP_NEG_X
@@ -115,7 +118,10 @@ class Simulation:
         self.slab.config.imu_axis_remap[
             slab_ctypes.AXIS_REMAP_Z
         ] = slab_ctypes.AXIS_REMAP_Z
-        self.slab.gamepad.stick_threshold = 10  # 0 - 255
+        self.slab.config.incline_p_gain = p.readUserDebugParameter(self.incline_kp)
+        self.slab.config.speed_p_gain = p.readUserDebugParameter(self.speed_kp)
+        self.slab.config.speed_i_gain = p.readUserDebugParameter(self.speed_ki)
+        self.slab.config.gamepad_stick_threshold = 10  # 0 - 255
         # reset camera
         p.resetDebugVisualizerCamera(5, 50, -35, (0, 0, 0))
 
@@ -195,6 +201,7 @@ class Simulation:
                 self.slab.motors[slab_ctypes.MOTOR_ID_FRONT_LEGS].input.position,
                 self.slab.motors[slab_ctypes.MOTOR_ID_BACK_LEGS].input.position,
             ],
+            positionGains=[0.01, 0.01],
         )
 
     def update_inputs(self):
@@ -243,7 +250,8 @@ class Simulation:
         # print_ctype(self.slab.input)
         # print_ctype(self.slab.imu)
         # print_ctype(self.slab.gamepad)
-        print_ctype(self.slab.wheel_to_wheel)
+        print_ctype(self.slab.state)
+        print_ctype(self.slab.motors[2].estimate.velocity)
 
     def run(self):
         while True:

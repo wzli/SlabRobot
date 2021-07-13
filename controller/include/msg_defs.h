@@ -95,8 +95,7 @@ MXGEN(struct, GamepadStick)
     X(GamepadStick, left_stick, )  \
     X(GamepadStick, right_stick, ) \
     X(uint8_t, left_trigger, )     \
-    X(uint8_t, right_trigger, )    \
-    X(uint8_t, stick_threshold, )
+    X(uint8_t, right_trigger, )
 MXGEN(struct, GamepadMsg)
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -127,34 +126,45 @@ typedef enum {
 // wheel speed in (rad/s)
 // wheel radius in (m)
 // wheel distance in (m)
-#define TYPEDEF_SlabConfig(X, _)  \
-    X(float, max_wheel_speed, )   \
-    X(float, wheel_diameter, )    \
-    X(float, wheel_distance, )    \
-    X(float, body_length, )       \
-    X(float, leg_length, )        \
-    X(float, max_leg_position, )  \
-    X(float, min_leg_position, )  \
-    X(float, leg_position_gain, ) \
-    X(int8_t, imu_axis_remap, [3])
+#define TYPEDEF_SlabConfig(X, _)     \
+    X(float, max_wheel_speed, )      \
+    X(float, max_leg_speed, )        \
+    X(float, wheel_diameter, )       \
+    X(float, wheel_distance, )       \
+    X(float, body_length, )          \
+    X(float, leg_length, )           \
+    X(float, max_leg_position, )     \
+    X(float, min_leg_position, )     \
+    X(int8_t, imu_axis_remap, [3])   \
+    X(uint8_t, joystick_threshold, ) \
+    X(float, incline_p_gain, )       \
+    X(float, speed_p_gain, )         \
+    X(float, speed_i_gain, )
 MXGEN(struct, SlabConfig)
 
 #define TYPEDEF_SlabInput(X, _)  \
     X(float, linear_velocity, )  \
     X(float, angular_velocity, ) \
     X(float, leg_positions, [2]) \
-    X(float, pitch_angle, )
+    X(float, body_incline, )
 MXGEN(struct, SlabInput)
 
-#define TYPEDEF_Slab(X, _)        \
-    X(uint32_t, tick, )           \
-    X(MotorMsg, motors, [6])      \
-    X(ImuMsg, imu, )              \
-    X(GamepadMsg, gamepad, )      \
-    X(uint8_t, controller_mode, ) \
-    X(bool, inverted, )           \
-    X(QuaternionF, orientation, ) \
-    X(Vector3F, wheel_to_wheel, ) \
-    X(SlabConfig, config, )       \
-    X(SlabInput, input, )
+#define TYPEDEF_SlabState(X, _)      \
+    X(QuaternionF, orientation, )    \
+    X(Vector3F, wheel_to_wheel, )    \
+    X(float, body_incline, )         \
+    X(float, linear_velocity, )      \
+    X(float, angular_velocity, )     \
+    X(float, speed_error_integral, ) \
+    X(uint8_t, controller_mode, )
+MXGEN(struct, SlabState)
+
+#define TYPEDEF_Slab(X, _)   \
+    X(uint32_t, tick, )      \
+    X(MotorMsg, motors, [6]) \
+    X(ImuMsg, imu, )         \
+    X(GamepadMsg, gamepad, ) \
+    X(SlabConfig, config, )  \
+    X(SlabInput, input, )    \
+    X(SlabState, state, )
 MXGEN(struct, Slab)

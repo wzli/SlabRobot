@@ -34,7 +34,7 @@ static void slab_gamepad_input_update(Slab* slab) {
     // parse stick to [lx, ly, rx, ry] normalized to 1
     float stick[4] = {0};
     for (int i = 0; i < 4; ++i) {
-        if (ABS((&slab->gamepad.left_stick.x)[i]) >= slab->gamepad.stick_threshold) {
+        if (ABS((&slab->gamepad.left_stick.x)[i]) >= slab->config.joystick_threshold) {
             stick[i] = -((&slab->gamepad.left_stick.x)[i] + 0.5f) / 127.5f;
         }
     }
@@ -82,13 +82,15 @@ static void slab_gamepad_input_update(Slab* slab) {
         for (int i = 0; i < 2; ++i) {
             slab->input.leg_positions[i] = slab->motors[i].estimate.position +
                                            (leg_positions[i] - slab->motors[i].estimate.position) *
-                                                   slab->config.leg_position_gain *
-                                                   slab->gamepad.left_trigger / 255.0f;
+                                                   (slab->config.max_leg_speed / 10) *
+                                                   (slab->gamepad.left_trigger / 255.0f);
         }
     }
-    // map controller mode to L1 button
-    slab->controller_mode = (slab->gamepad.buttons >> GAMEPAD_BUTTON_L1) & 1;
-    // slab->controller_mode = CONTROLLER_MODE_BALANCE;
+    if ((slab->gamepad.buttons >> GAMEPAD_BUTTON_CIRCLE) & 1) {
+        slab->input.body_incline += 0.005;
+    } else if ((slab->gamepad.buttons >> GAMEPAD_BUTTON_CROSS) & 1) {
+        slab->input.body_incline -= 0.005;
+    }
 }
 
 static void slab_differential_drive_update(Slab* slab, float v_lin, float v_ang, uint8_t legs) {
@@ -115,17 +117,34 @@ static void slab_ground_controller_update(Slab* slab) {
 }
 
 static void slab_balance_controller_update(Slab* slab) {
-    float roll = quat_to_roll((float*) &slab->orientation);
-    float desired_roll = -M_PI / 2;
-    float error = (desired_roll - roll);
-    float gain = 30.0f;
-    float v_lin = error * gain;
-    slab_differential_drive_update(slab, v_lin, 0, (1 << MOTOR_ID_FRONT_LEGS));
+    float incline_error = slab->input.body_incline - slab->state.body_incline;
+    float speed = incline_error * slab->config.incline_p_gain;
+    // TODO compute speed feedback from encoders instead
+    float speed_error = slab->input.linear_velocity - speed;
+    slab->state.speed_error_integral += speed_error;
+    float leg_position = (speed_error * slab->config.speed_p_gain) +
+                         (slab->state.speed_error_integral * slab->config.speed_i_gain);
+    bool front_down = slab->state.wheel_to_wheel.z > 0;
+    slab_differential_drive_update(slab, speed, slab->input.angular_velocity, front_down + 1);
+    slab->input.leg_positions[front_down] = -leg_position;
+    for (int i = 0; i < 2; ++i) {
+        slab->motors[MOTOR_ID_FRONT_LEGS + i].input.position = CLAMP(slab->input.leg_positions[i],
+                slab->config.min_leg_position, slab->config.max_leg_position);
+    }
+
     // slab_ground_controller_update(slab);
-    printf("r %f e %f v %f\n", roll, error, slab->motors[2].input.velocity);
+    printf("r %f e %f v %f\n", slab->state.body_incline, incline_error,
+            slab->motors[2].input.velocity);
 }
 
-static void slab_wheel_to_wheel(Slab* slab) {
+static void slab_state_update(Slab* slab) {
+    // remap axis such that [x -> right, y -> forward, z -> up]
+    slab->state.orientation.qw = slab->imu.orientation.qw;
+    axis_remap((Vector3F*) &slab->state.orientation.qx, (Vector3F*) &slab->imu.orientation.qx,
+            slab->config.imu_axis_remap);
+    // calculate roll
+    slab->state.body_incline = quat_to_roll((float*) &slab->state.orientation);
+    // calculate wheel to wheel vector
     float wheel_to_wheel[3] = {0,
             slab->config.body_length +
                     slab->config.leg_length *
@@ -134,16 +153,26 @@ static void slab_wheel_to_wheel(Slab* slab) {
             slab->config.leg_length *
                     (sinf(slab->motors[MOTOR_ID_FRONT_LEGS].estimate.position) +
                             sinf(slab->motors[MOTOR_ID_BACK_LEGS].estimate.position))};
-    QUAT_TRANSFORM((float*) &slab->wheel_to_wheel, (float*) &slab->orientation, wheel_to_wheel);
+    QUAT_TRANSFORM((float*) &slab->state.wheel_to_wheel, (float*) &slab->state.orientation,
+            wheel_to_wheel);
+    // TODO transform wheel velocity to body frame
+
+    // map controller mode to L1 button
+    uint8_t controller_mode = (slab->gamepad.buttons >> GAMEPAD_BUTTON_L1) & 1;
+    if (slab->state.controller_mode != controller_mode) {
+        slab->input.body_incline = slab->state.body_incline;
+        slab->input.linear_velocity = 0;
+        bool front_down = slab->state.wheel_to_wheel.z > 0;
+        slab->state.speed_error_integral =
+                -slab->input.leg_positions[front_down] / slab->config.speed_i_gain;
+    }
+    slab->state.controller_mode = controller_mode;
 }
 
 void slab_update(Slab* slab) {
+    slab_state_update(slab);
     slab_gamepad_input_update(slab);
-    slab->orientation.qw = slab->imu.orientation.qw;
-    axis_remap((Vector3F*) &slab->orientation.qx, (Vector3F*) &slab->imu.orientation.qx,
-            slab->config.imu_axis_remap);
-    slab_wheel_to_wheel(slab);
-    switch (slab->controller_mode) {
+    switch (slab->state.controller_mode) {
         case CONTROLLER_MODE_GROUND:
             slab_ground_controller_update(slab);
             break;
