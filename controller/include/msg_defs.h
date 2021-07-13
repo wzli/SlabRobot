@@ -109,9 +109,11 @@ typedef enum {
 } MotorId;
 
 typedef enum {
-    CONTROLLER_MODE_GROUND,
-    CONTROLLER_MODE_BALANCE,
-} ControllerMode;
+    GROUND_CONTACT_NONE,
+    GROUND_CONTACT_FRONT,
+    GROUND_CONTACT_BACK,
+    GROUND_CONTACT_BOTH,
+} GroundContact;
 
 typedef enum {
     AXIS_REMAP_X,
@@ -155,7 +157,7 @@ MXGEN(struct, SlabInput)
     X(float, linear_velocity, )      \
     X(float, angular_velocity, )     \
     X(float, speed_error_integral, ) \
-    X(uint8_t, controller_mode, )
+    X(uint8_t, ground_contact, )
 MXGEN(struct, SlabState)
 
 #define TYPEDEF_Slab(X, _)   \

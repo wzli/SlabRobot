@@ -54,6 +54,9 @@ static void slab_gamepad_input_update(Slab* slab) {
     // map R-stick and buttons to leg positions
     float smoothing = 0.05f * (slab->gamepad.right_trigger / 255.0f);
     for (int i = 0, sign = -1; i < 2; ++i, sign *= -1) {
+        if (slab->state.ground_contact == i + 1) {
+            continue;
+        }
         if ((slab->gamepad.buttons >> GAMEPAD_BUTTON_START) & 1) {
             LOW_PASS_FILTER(slab->input.leg_positions[i], -M_PI, smoothing);
         } else if ((slab->gamepad.buttons >> GAMEPAD_BUTTON_TRIANGLE) & 1) {
@@ -75,7 +78,7 @@ static void slab_gamepad_input_update(Slab* slab) {
     }
 }
 
-static void slab_differential_drive_update(Slab* slab, float v_lin, float v_ang, uint8_t legs) {
+static void slab_differential_drive_update(Slab* slab, float v_lin, float v_ang) {
     const float r = slab->config.wheel_diameter / 2;
     const float R = slab->config.wheel_distance / 2;
     const float v_max = slab->config.max_wheel_speed;
@@ -83,6 +86,7 @@ static void slab_differential_drive_update(Slab* slab, float v_lin, float v_ang,
     float right_wheel_speed = (v_lin + v_ang * R) / r;
     left_wheel_speed = CLAMP(left_wheel_speed, -v_max, v_max);
     right_wheel_speed = CLAMP(right_wheel_speed, -v_max, v_max);
+    uint8_t legs = slab->state.ground_contact;
     slab->motors[MOTOR_ID_FRONT_LEFT_WHEEL].input.velocity = (legs & 1) ? left_wheel_speed : 0;
     slab->motors[MOTOR_ID_FRONT_RIGHT_WHEEL].input.velocity = (legs & 1) ? right_wheel_speed : 0;
     slab->motors[MOTOR_ID_BACK_LEFT_WHEEL].input.velocity = (legs & 2) ? left_wheel_speed : 0;
@@ -90,8 +94,7 @@ static void slab_differential_drive_update(Slab* slab, float v_lin, float v_ang,
 }
 
 static void slab_ground_controller_update(Slab* slab) {
-    slab_differential_drive_update(slab, slab->input.linear_velocity, slab->input.angular_velocity,
-            (1 << MOTOR_ID_FRONT_LEGS) | (1 << MOTOR_ID_BACK_LEGS));
+    slab_differential_drive_update(slab, slab->input.linear_velocity, slab->input.angular_velocity);
     for (int i = 0; i < 2; ++i) {
         slab->motors[MOTOR_ID_FRONT_LEGS + i].input.position = CLAMP(slab->input.leg_positions[i],
                 slab->config.min_leg_position, slab->config.max_leg_position);
@@ -104,11 +107,11 @@ static void slab_balance_controller_update(Slab* slab) {
     // TODO compute speed feedback from encoders instead
     float speed_error = slab->input.linear_velocity - speed;
     slab->state.speed_error_integral += speed_error;
-    bool front_down = slab->state.wheel_to_wheel.z > 0;
-    slab_differential_drive_update(slab, speed, slab->input.angular_velocity, front_down + 1);
+    slab_differential_drive_update(slab, speed, slab->input.angular_velocity);
     float leg_positions[2] = {slab->input.leg_positions[0], slab->input.leg_positions[1]};
-    leg_positions[front_down] -= (speed_error * slab->config.speed_p_gain) +
-                                 (slab->state.speed_error_integral * slab->config.speed_i_gain);
+    leg_positions[slab->state.ground_contact - 1] -=
+            (speed_error * slab->config.speed_p_gain) +
+            (slab->state.speed_error_integral * slab->config.speed_i_gain);
     for (int i = 0; i < 2; ++i) {
         slab->motors[MOTOR_ID_FRONT_LEGS + i].input.position = CLAMP(
                 leg_positions[i], slab->config.min_leg_position, slab->config.max_leg_position);
@@ -140,26 +143,29 @@ static void slab_state_update(Slab* slab) {
     // TODO transform wheel velocity to body frame
 
     // map controller mode to L1 button
-    uint8_t controller_mode = (slab->gamepad.buttons >> GAMEPAD_BUTTON_L1) & 1;
-    if (slab->state.controller_mode != controller_mode) {
+    GroundContact ground_contact = (slab->gamepad.buttons >> GAMEPAD_BUTTON_L1) & 1
+                                           ? (slab->state.wheel_to_wheel.z > 0) + 1
+                                           : GROUND_CONTACT_BOTH;
+    if (slab->state.ground_contact != ground_contact) {
         slab->input.body_incline = slab->state.body_incline;
         slab->input.linear_velocity = 0;
         slab->input.leg_positions[0] = slab->motors[0].estimate.position;
         slab->input.leg_positions[1] = slab->motors[1].estimate.position;
         slab->state.speed_error_integral = 0;
     }
-    slab->state.controller_mode = controller_mode;
+    slab->state.ground_contact = ground_contact;
 }
 
 void slab_update(Slab* slab) {
     slab_state_update(slab);
     slab_gamepad_input_update(slab);
-    switch (slab->state.controller_mode) {
-        case CONTROLLER_MODE_GROUND:
-            slab_ground_controller_update(slab);
-            break;
-        case CONTROLLER_MODE_BALANCE:
+    switch (slab->state.ground_contact) {
+        case GROUND_CONTACT_FRONT:
+        case GROUND_CONTACT_BACK:
             slab_balance_controller_update(slab);
+            break;
+        default:
+            slab_ground_controller_update(slab);
             break;
     }
 #if 0
