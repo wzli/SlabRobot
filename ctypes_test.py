@@ -102,7 +102,6 @@ class Simulation:
 
         # set slab config
         self.slab.config.max_wheel_speed = 40  # rad/s
-        self.slab.config.max_leg_speed = 9  # rad/s
         self.slab.config.wheel_diameter = 0.165  # m
         self.slab.config.wheel_distance = 0.4  # m
         self.slab.config.body_length = 0.4  # m

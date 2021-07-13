@@ -11,6 +11,7 @@
 #define MAX(X, Y) ((X) > (Y) ? (X) : (Y))
 #define MIN(X, Y) ((X) < (Y) ? (X) : (Y))
 #define CLAMP(X, LO, HI) ((X) < (LO) ? (LO) : (X) > (HI) ? (HI) : (X))
+#define LOW_PASS_FILTER(Y, X, ALPHA) ((Y) += ((X) - (Y)) * (ALPHA))
 
 #define XOR_SWAP_CASE(X, Y, W)                        \
     case (W) / 8:                                     \

@@ -128,7 +128,6 @@ typedef enum {
 // wheel distance in (m)
 #define TYPEDEF_SlabConfig(X, _)     \
     X(float, max_wheel_speed, )      \
-    X(float, max_leg_speed, )        \
     X(float, wheel_diameter, )       \
     X(float, wheel_distance, )       \
     X(float, body_length, )          \

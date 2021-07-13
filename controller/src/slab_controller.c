@@ -52,27 +52,19 @@ static void slab_gamepad_input_update(Slab* slab) {
         slab->input.angular_velocity = stick[0] * speed_scale / slab->config.wheel_distance;
     }
     // map R-stick and buttons to leg positions
-    float leg_positions[2] = {slab->motors[MOTOR_ID_FRONT_LEGS].estimate.position,
-            slab->motors[MOTOR_ID_BACK_LEGS].estimate.position};
-    float throttle = (slab->gamepad.right_trigger / 255.0f);
-    if ((slab->gamepad.buttons >> GAMEPAD_BUTTON_START) & 1) {
-        leg_positions[MOTOR_ID_FRONT_LEGS] = -M_PI;
-        leg_positions[MOTOR_ID_BACK_LEGS] = -M_PI;
-    } else if ((slab->gamepad.buttons >> GAMEPAD_BUTTON_TRIANGLE) & 1) {
-        leg_positions[MOTOR_ID_FRONT_LEGS] = -M_PI / 2;
-        leg_positions[MOTOR_ID_BACK_LEGS] = M_PI / 2;
-    } else if ((slab->gamepad.buttons >> GAMEPAD_BUTTON_SQUARE) & 1) {
-        leg_positions[MOTOR_ID_FRONT_LEGS] = M_PI / 2;
-        leg_positions[MOTOR_ID_BACK_LEGS] = -M_PI / 2;
-    } else {
-        leg_positions[MOTOR_ID_FRONT_LEGS] -= (stick[2] - stick[3]);
-        leg_positions[MOTOR_ID_BACK_LEGS] -= (stick[2] + stick[3]);
-        throttle = 1;
-    }
-    for (int i = 0; i < 2; ++i) {
-        slab->input.leg_positions[i] = slab->motors[i].estimate.position +
-                                       (leg_positions[i] - slab->motors[i].estimate.position) *
-                                               (slab->config.max_leg_speed / 10) * throttle;
+    float smoothing = 0.05f * (slab->gamepad.right_trigger / 255.0f);
+    for (int i = 0, sign = -1; i < 2; ++i, sign *= -1) {
+        if ((slab->gamepad.buttons >> GAMEPAD_BUTTON_START) & 1) {
+            LOW_PASS_FILTER(slab->input.leg_positions[i], -M_PI, smoothing);
+        } else if ((slab->gamepad.buttons >> GAMEPAD_BUTTON_TRIANGLE) & 1) {
+            LOW_PASS_FILTER(slab->input.leg_positions[i], sign * M_PI / 2, smoothing);
+        } else if ((slab->gamepad.buttons >> GAMEPAD_BUTTON_SQUARE) & 1) {
+            LOW_PASS_FILTER(slab->input.leg_positions[i], -sign * M_PI / 2, smoothing);
+        } else {
+            slab->input.leg_positions[i] -= 0.05f * (stick[2] + stick[3] * sign);
+            slab->input.leg_positions[i] = CLAMP(slab->input.leg_positions[i],
+                    slab->config.min_leg_position, slab->config.max_leg_position);
+        }
     }
     if ((slab->gamepad.buttons >> GAMEPAD_BUTTON_CIRCLE) & 1) {
         slab->input.body_incline += 0.005;
@@ -112,14 +104,14 @@ static void slab_balance_controller_update(Slab* slab) {
     // TODO compute speed feedback from encoders instead
     float speed_error = slab->input.linear_velocity - speed;
     slab->state.speed_error_integral += speed_error;
-    float leg_position = (speed_error * slab->config.speed_p_gain) +
-                         (slab->state.speed_error_integral * slab->config.speed_i_gain);
     bool front_down = slab->state.wheel_to_wheel.z > 0;
     slab_differential_drive_update(slab, speed, slab->input.angular_velocity, front_down + 1);
-    slab->input.leg_positions[front_down] = -leg_position;
+    float leg_positions[2] = {slab->input.leg_positions[0], slab->input.leg_positions[1]};
+    leg_positions[front_down] -= (speed_error * slab->config.speed_p_gain) +
+                                 (slab->state.speed_error_integral * slab->config.speed_i_gain);
     for (int i = 0; i < 2; ++i) {
-        slab->motors[MOTOR_ID_FRONT_LEGS + i].input.position = CLAMP(slab->input.leg_positions[i],
-                slab->config.min_leg_position, slab->config.max_leg_position);
+        slab->motors[MOTOR_ID_FRONT_LEGS + i].input.position = CLAMP(
+                leg_positions[i], slab->config.min_leg_position, slab->config.max_leg_position);
     }
 
     // slab_ground_controller_update(slab);
@@ -152,9 +144,9 @@ static void slab_state_update(Slab* slab) {
     if (slab->state.controller_mode != controller_mode) {
         slab->input.body_incline = slab->state.body_incline;
         slab->input.linear_velocity = 0;
-        bool front_down = slab->state.wheel_to_wheel.z > 0;
-        slab->state.speed_error_integral =
-                -slab->input.leg_positions[front_down] / slab->config.speed_i_gain;
+        slab->input.leg_positions[0] = slab->motors[0].estimate.position;
+        slab->input.leg_positions[1] = slab->motors[1].estimate.position;
+        slab->state.speed_error_integral = 0;
     }
     slab->state.controller_mode = controller_mode;
 }
