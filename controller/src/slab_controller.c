@@ -142,10 +142,51 @@ static void slab_state_update(Slab* slab) {
             wheel_to_wheel);
     // TODO transform wheel velocity to body frame
 
+    #if 1
+
     // map controller mode to L1 button
     GroundContact ground_contact = (slab->gamepad.buttons >> GAMEPAD_BUTTON_L1) & 1
                                            ? (slab->state.wheel_to_wheel.z > 0) + 1
                                            : GROUND_CONTACT_BOTH;
+    # else
+    // calculate ground contacts
+    const float L = slab->config.body_length / 2;
+    const float l = slab->config.leg_length;
+    const float a = slab->motors[MOTOR_ID_FRONT_LEGS].estimate.position;
+    const float b = slab->motors[MOTOR_ID_BACK_LEGS].estimate.position;
+    Vector3F verticies_local[4] = {
+            {0, L + l * cosf(a), l * sinf(a)},
+            {0, -(L + l * cosf(b)), -(l * sinf(a))},
+            {0, L, 0},
+            {0, -L, 0},
+    };
+    Vector3F verticies[4];
+    for (int i = 0; i < 4; ++i) {
+        QUAT_TRANSFORM((float*) &verticies[i], (float*) &slab->state.orientation,
+                (float*) &verticies_local[i]);
+        printf("iz %f \n", verticies[i].z);
+    }
+    int lowest = verticies[1].z < verticies[0].z;
+    int second_lowest = !lowest;
+    for (int i = 2; i < 4; ++i) {
+        if (verticies[i].z < verticies[lowest].z) {
+            second_lowest = lowest;
+            lowest = i;
+        } else if (verticies[i].z < verticies[second_lowest].z) {
+            second_lowest = i;
+        }
+    }
+    printf("1st %u 2nd %u\n", lowest, second_lowest);
+    uint8_t ground_contact = 0;
+    bool single_contact = (verticies[second_lowest].z - verticies[lowest].z) > 0.1f;
+    if (single_contact && lowest < 2)  {
+        ground_contact |= lowest + 1;
+    }
+    if (!single_contact && (lowest + second_lowest) < 2) {
+        ground_contact = GROUND_CONTACT_BOTH;
+    }
+    #endif
+
     if (slab->state.ground_contact != ground_contact) {
         slab->input.body_incline = slab->state.body_incline;
         slab->input.linear_velocity = 0;
