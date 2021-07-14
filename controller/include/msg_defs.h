@@ -109,13 +109,6 @@ typedef enum {
 } MotorId;
 
 typedef enum {
-    GROUND_CONTACT_NONE,
-    GROUND_CONTACT_FRONT,
-    GROUND_CONTACT_BACK,
-    GROUND_CONTACT_BOTH,
-} GroundContact;
-
-typedef enum {
     AXIS_REMAP_X,
     AXIS_REMAP_Y,
     AXIS_REMAP_Z,
@@ -128,18 +121,20 @@ typedef enum {
 // wheel speed in (rad/s)
 // wheel radius in (m)
 // wheel distance in (m)
-#define TYPEDEF_SlabConfig(X, _)     \
-    X(float, max_wheel_speed, )      \
-    X(float, wheel_diameter, )       \
-    X(float, wheel_distance, )       \
-    X(float, body_length, )          \
-    X(float, leg_length, )           \
-    X(float, max_leg_position, )     \
-    X(float, min_leg_position, )     \
-    X(int8_t, imu_axis_remap, [3])   \
-    X(uint8_t, joystick_threshold, ) \
-    X(float, incline_p_gain, )       \
-    X(float, speed_p_gain, )         \
+#define TYPEDEF_SlabConfig(X, _)      \
+    X(float, max_wheel_speed, )       \
+    X(float, wheel_diameter, )        \
+    X(float, wheel_distance, )        \
+    X(float, body_length, )           \
+    X(float, leg_length, )            \
+    X(float, max_leg_position, )      \
+    X(float, min_leg_position, )      \
+    X(int8_t, imu_axis_remap, [3])    \
+    X(uint8_t, joystick_threshold, )  \
+    X(float, ground_rise_threshold, ) \
+    X(float, ground_fall_threshold, ) \
+    X(float, incline_p_gain, )        \
+    X(float, speed_p_gain, )          \
     X(float, speed_i_gain, )
 MXGEN(struct, SlabConfig)
 
@@ -152,12 +147,12 @@ MXGEN(struct, SlabInput)
 
 #define TYPEDEF_SlabState(X, _)      \
     X(QuaternionF, orientation, )    \
-    X(Vector3F, wheel_to_wheel, )    \
+    X(Vector3F, verticies, [4])      \
     X(float, body_incline, )         \
     X(float, linear_velocity, )      \
     X(float, angular_velocity, )     \
     X(float, speed_error_integral, ) \
-    X(uint8_t, ground_contact, )
+    X(uint8_t, ground_contacts, )
 MXGEN(struct, SlabState)
 
 #define TYPEDEF_Slab(X, _)   \

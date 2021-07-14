@@ -54,7 +54,7 @@ static void slab_gamepad_input_update(Slab* slab) {
     // map R-stick and buttons to leg positions
     float smoothing = 0.05f * (slab->gamepad.right_trigger / 255.0f);
     for (int i = 0, sign = -1; i < 2; ++i, sign *= -1) {
-        if (slab->state.ground_contact == i + 1) {
+        if (slab->state.ground_contacts == i + 1) {
             continue;
         }
         if ((slab->gamepad.buttons >> GAMEPAD_BUTTON_START) & 1) {
@@ -86,7 +86,7 @@ static void slab_differential_drive_update(Slab* slab, float v_lin, float v_ang)
     float right_wheel_speed = (v_lin + v_ang * R) / r;
     left_wheel_speed = CLAMP(left_wheel_speed, -v_max, v_max);
     right_wheel_speed = CLAMP(right_wheel_speed, -v_max, v_max);
-    uint8_t legs = slab->state.ground_contact;
+    uint8_t legs = slab->state.ground_contacts;
     slab->motors[MOTOR_ID_FRONT_LEFT_WHEEL].input.velocity = (legs & 1) ? left_wheel_speed : 0;
     slab->motors[MOTOR_ID_FRONT_RIGHT_WHEEL].input.velocity = (legs & 1) ? right_wheel_speed : 0;
     slab->motors[MOTOR_ID_BACK_LEFT_WHEEL].input.velocity = (legs & 2) ? left_wheel_speed : 0;
@@ -109,7 +109,7 @@ static void slab_balance_controller_update(Slab* slab) {
     slab->state.speed_error_integral += speed_error;
     slab_differential_drive_update(slab, speed, slab->input.angular_velocity);
     float leg_positions[2] = {slab->input.leg_positions[0], slab->input.leg_positions[1]};
-    leg_positions[slab->state.ground_contact - 1] -=
+    leg_positions[slab->state.ground_contacts - 1] -=
             (speed_error * slab->config.speed_p_gain) +
             (slab->state.speed_error_integral * slab->config.speed_i_gain);
     for (int i = 0; i < 2; ++i) {
@@ -129,26 +129,8 @@ static void slab_state_update(Slab* slab) {
             slab->config.imu_axis_remap);
     // calculate roll
     slab->state.body_incline = quat_to_roll((float*) &slab->state.orientation);
-    // calculate wheel to wheel vector
-    float wheel_to_wheel[3] = {0,
-            slab->config.body_length +
-                    slab->config.leg_length *
-                            (cosf(slab->motors[MOTOR_ID_FRONT_LEGS].estimate.position) +
-                                    cosf(slab->motors[MOTOR_ID_BACK_LEGS].estimate.position)),
-            slab->config.leg_length *
-                    (sinf(slab->motors[MOTOR_ID_FRONT_LEGS].estimate.position) +
-                            sinf(slab->motors[MOTOR_ID_BACK_LEGS].estimate.position))};
-    QUAT_TRANSFORM((float*) &slab->state.wheel_to_wheel, (float*) &slab->state.orientation,
-            wheel_to_wheel);
     // TODO transform wheel velocity to body frame
 
-    #if 1
-
-    // map controller mode to L1 button
-    GroundContact ground_contact = (slab->gamepad.buttons >> GAMEPAD_BUTTON_L1) & 1
-                                           ? (slab->state.wheel_to_wheel.z > 0) + 1
-                                           : GROUND_CONTACT_BOTH;
-    # else
     // calculate ground contacts
     const float L = slab->config.body_length / 2;
     const float l = slab->config.leg_length;
@@ -156,58 +138,52 @@ static void slab_state_update(Slab* slab) {
     const float b = slab->motors[MOTOR_ID_BACK_LEGS].estimate.position;
     Vector3F verticies_local[4] = {
             {0, L + l * cosf(a), l * sinf(a)},
-            {0, -(L + l * cosf(b)), -(l * sinf(a))},
+            {0, -(L + l * cosf(b)), -(l * sinf(b))},
             {0, L, 0},
             {0, -L, 0},
     };
-    Vector3F verticies[4];
     for (int i = 0; i < 4; ++i) {
-        QUAT_TRANSFORM((float*) &verticies[i], (float*) &slab->state.orientation,
+        QUAT_TRANSFORM((float*) &slab->state.verticies[i], (float*) &slab->state.orientation,
                 (float*) &verticies_local[i]);
-        printf("iz %f \n", verticies[i].z);
     }
-    int lowest = verticies[1].z < verticies[0].z;
-    int second_lowest = !lowest;
-    for (int i = 2; i < 4; ++i) {
-        if (verticies[i].z < verticies[lowest].z) {
-            second_lowest = lowest;
-            lowest = i;
-        } else if (verticies[i].z < verticies[second_lowest].z) {
-            second_lowest = i;
+    float ground_z = slab->state.verticies[0].z;
+    for (int i = 1; i < 4; ++i) {
+        ground_z = MIN(ground_z, slab->state.verticies[i].z);
+    }
+    uint8_t ground_contacts = slab->state.ground_contacts;
+    for (int i = 0; i < 4; ++i) {
+        slab->state.verticies[i].z -= ground_z;
+        if ((slab->state.ground_contacts >> i) & 1) {
+            if (slab->state.verticies[i].z > slab->config.ground_rise_threshold) {
+                ground_contacts &= ~(1 << i);
+            }
+        } else {
+            if (slab->state.verticies[i].z < slab->config.ground_fall_threshold) {
+                ground_contacts |= 1 << i;
+            }
         }
     }
-    printf("1st %u 2nd %u\n", lowest, second_lowest);
-    uint8_t ground_contact = 0;
-    bool single_contact = (verticies[second_lowest].z - verticies[lowest].z) > 0.1f;
-    if (single_contact && lowest < 2)  {
-        ground_contact |= lowest + 1;
-    }
-    if (!single_contact && (lowest + second_lowest) < 2) {
-        ground_contact = GROUND_CONTACT_BOTH;
-    }
-    #endif
 
-    if (slab->state.ground_contact != ground_contact) {
+    if (slab->state.ground_contacts != ground_contacts) {
         slab->input.body_incline = slab->state.body_incline;
         slab->input.linear_velocity = 0;
         slab->input.leg_positions[0] = slab->motors[0].estimate.position;
         slab->input.leg_positions[1] = slab->motors[1].estimate.position;
         slab->state.speed_error_integral = 0;
     }
-    slab->state.ground_contact = ground_contact;
+    slab->state.ground_contacts = ground_contacts;
 }
 
 void slab_update(Slab* slab) {
     slab_state_update(slab);
     slab_gamepad_input_update(slab);
-    switch (slab->state.ground_contact) {
-        case GROUND_CONTACT_FRONT:
-        case GROUND_CONTACT_BACK:
+    switch (slab->state.ground_contacts) {
+        case 1:
+        case 2:
             slab_balance_controller_update(slab);
             break;
         default:
             slab_ground_controller_update(slab);
-            break;
     }
 #if 0
     imu_axis_remap(&slab->imu, slab->config.imu_axis_remap);
