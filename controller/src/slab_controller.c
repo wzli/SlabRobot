@@ -102,19 +102,20 @@ static void slab_ground_controller_update(Slab* slab) {
 }
 
 static void slab_balance_controller_update(Slab* slab) {
+    // use body speed to control body incline
     float incline_error = slab->input.body_incline - slab->state.body_incline;
-    float speed = incline_error * slab->config.incline_p_gain;
-    // TODO compute speed feedback from encoders instead
-    float speed_error = slab->input.linear_velocity - speed;
+    float speed_output = incline_error * slab->config.incline_p_gain;
+    slab_differential_drive_update(slab, speed_output, slab->input.angular_velocity);
+    // use leg with ground contact to control body speed
+    float speed_error = slab->input.linear_velocity - slab->state.linear_velocity;
     slab->state.speed_error_integral += speed_error;
-    slab_differential_drive_update(slab, speed, slab->input.angular_velocity);
-    float leg_positions[2] = {slab->input.leg_positions[0], slab->input.leg_positions[1]};
-    leg_positions[slab->state.ground_contacts - 1] -=
-            (speed_error * slab->config.speed_p_gain) +
-            (slab->state.speed_error_integral * slab->config.speed_i_gain);
+    float leg_position_bias = (speed_error * slab->config.speed_p_gain) +
+                              (slab->state.speed_error_integral * slab->config.speed_i_gain);
     for (int i = 0; i < 2; ++i) {
-        slab->motors[MOTOR_ID_FRONT_LEGS + i].input.position = CLAMP(
-                leg_positions[i], slab->config.min_leg_position, slab->config.max_leg_position);
+        float leg_position_output = slab->input.leg_positions[i] -
+                                    GET_BIT(slab->state.ground_contacts, i) * leg_position_bias;
+        slab->motors[i].input.position = CLAMP(
+                leg_position_output, slab->config.min_leg_position, slab->config.max_leg_position);
     }
 
     // slab_ground_controller_update(slab);

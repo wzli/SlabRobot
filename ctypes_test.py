@@ -181,6 +181,10 @@ class Simulation:
         for i, state in enumerate(joint_states):
             self.slab.motors[i].estimate.position = state[0]
             self.slab.motors[i].estimate.velocity = state[1]
+        self.slab.motors[slab_ctypes.MOTOR_ID_FRONT_LEFT_WHEEL].estimate.position *= -1
+        self.slab.motors[slab_ctypes.MOTOR_ID_FRONT_LEFT_WHEEL].estimate.velocity *= -1
+        self.slab.motors[slab_ctypes.MOTOR_ID_BACK_LEFT_WHEEL].estimate.position *= -1
+        self.slab.motors[slab_ctypes.MOTOR_ID_BACK_LEFT_WHEEL].estimate.velocity *= -1
         # update wheel speed input
         p.setJointMotorControlArray(
             self.robot,
