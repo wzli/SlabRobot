@@ -23,6 +23,12 @@ static void axis_remap(Vector3F* out, const Vector3F* in, const int8_t* remap) {
 }
 
 static void slab_gamepad_input_update(Slab* slab) {
+    // override balance control with trigger buttons
+    if (GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_L1)) {
+        slab->state.balance_active = false;
+    } else if (GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_R1)) {
+        slab->state.balance_active = true;
+    }
     // parse stick to [lx, ly, rx, ry] normalized to 1
     float stick[4] = {0};
     for (int i = 0; i < 4; ++i) {
@@ -42,6 +48,9 @@ static void slab_gamepad_input_update(Slab* slab) {
     }
     // scale velocity input to max wheel speed
     float speed_scale = 0.5f * slab->config.wheel_diameter * slab->config.max_wheel_speed;
+    if (slab->state.balance_active) {
+        speed_scale /= 4;
+    }
     // map L-stick to velocity input (dpad overrides stick)
     if (dpad_x != 0 || dpad_y != 0) {
         speed_scale *= slab->gamepad.left_trigger / 255.0f;
@@ -56,8 +65,16 @@ static void slab_gamepad_input_update(Slab* slab) {
     for (int i = 0, sign = -1; i < 2; ++i, sign *= -1) {
         if (slab->state.ground_contacts == i + 1) {
             continue;
-        }
-        if (GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_START)) {
+        } else if (GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_CIRCLE)) {
+            // TODO need to clamp after increment
+            slab->input.leg_positions[!i] += smoothing / 4;
+            slab->input.leg_positions[i] += smoothing / 8;
+            slab->input.body_incline -= smoothing / 8;
+        } else if (GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_CROSS)) {
+            slab->input.leg_positions[!i] -= smoothing / 4;
+            slab->input.leg_positions[i] -= smoothing / 8;
+            slab->input.body_incline += smoothing / 8;
+        } else if (GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_START)) {
             LOW_PASS_FILTER(slab->input.leg_positions[i], -M_PI, smoothing);
         } else if (GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_TRIANGLE)) {
             LOW_PASS_FILTER(slab->input.leg_positions[i], sign * M_PI / 2, smoothing);
@@ -68,13 +85,6 @@ static void slab_gamepad_input_update(Slab* slab) {
             slab->input.leg_positions[i] = CLAMP(slab->input.leg_positions[i],
                     slab->config.min_leg_position, slab->config.max_leg_position);
         }
-    }
-    if (GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_CIRCLE)) {
-        slab->input.body_incline += 0.005;
-        slab->state.speed_error_integral += 0.01 / slab->config.speed_i_gain;
-    } else if (GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_CROSS)) {
-        slab->input.body_incline -= 0.005;
-        slab->state.speed_error_integral -= 0.01 / slab->config.speed_i_gain;
     }
 }
 
@@ -117,10 +127,6 @@ static void slab_balance_controller_update(Slab* slab) {
         slab->motors[i].input.position = CLAMP(
                 leg_position_output, slab->config.min_leg_position, slab->config.max_leg_position);
     }
-
-    // slab_ground_controller_update(slab);
-    printf("r %f e %f v %f\n", slab->state.body_incline, incline_error,
-            slab->motors[2].input.velocity);
 }
 
 static void slab_state_update(Slab* slab) {
@@ -174,7 +180,9 @@ static void slab_state_update(Slab* slab) {
             slab->state.linear_velocity += slab->motors[2 + i].estimate.velocity;
         }
     }
-    slab->state.linear_velocity *= 0.5f * slab->config.wheel_diameter / ground_wheels;
+    if (ground_wheels) {
+        slab->state.linear_velocity *= 0.5f * slab->config.wheel_diameter / ground_wheels;
+    }
     // turn on balance control when only one leg has ground contact
     bool balance_active = slab->state.ground_contacts == 1 || slab->state.ground_contacts == 2;
     // reset control states on transition
