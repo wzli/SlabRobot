@@ -5,6 +5,7 @@
 
 // generic functions
 
+#define GET_BIT(X, I) (((X) >> (I)) & 1)
 #define ABS(X) ((X) < 0 ? -(X) : (X))
 #define SQR(X) ((X) * (X))
 #define SGN(X) (((X) > 0) - ((X) < 0))

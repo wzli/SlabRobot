@@ -152,7 +152,8 @@ MXGEN(struct, SlabInput)
     X(float, linear_velocity, )      \
     X(float, angular_velocity, )     \
     X(float, speed_error_integral, ) \
-    X(uint8_t, ground_contacts, )
+    X(uint8_t, ground_contacts, )    \
+    X(bool, balance_active, )
 MXGEN(struct, SlabState)
 
 #define TYPEDEF_Slab(X, _)   \

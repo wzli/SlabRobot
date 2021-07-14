@@ -31,10 +31,10 @@ static void slab_gamepad_input_update(Slab* slab) {
         }
     }
     // parse dpad to normalized vector
-    float dpad_x = ((slab->gamepad.buttons >> GAMEPAD_BUTTON_LEFT) & 1) -
-                   ((slab->gamepad.buttons >> GAMEPAD_BUTTON_RIGHT) & 1);
-    float dpad_y = ((slab->gamepad.buttons >> GAMEPAD_BUTTON_UP) & 1) -
-                   ((slab->gamepad.buttons >> GAMEPAD_BUTTON_DOWN) & 1);
+    float dpad_x = GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_LEFT) -
+                   GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_RIGHT);
+    float dpad_y = GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_UP) -
+                   GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_DOWN);
     if (dpad_x != 0 && dpad_y != 0) {
         float inv_norm = 1.0f / sqrtf(SQR(dpad_x) + SQR(dpad_y));
         dpad_x *= inv_norm;
@@ -57,11 +57,11 @@ static void slab_gamepad_input_update(Slab* slab) {
         if (slab->state.ground_contacts == i + 1) {
             continue;
         }
-        if ((slab->gamepad.buttons >> GAMEPAD_BUTTON_START) & 1) {
+        if (GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_START)) {
             LOW_PASS_FILTER(slab->input.leg_positions[i], -M_PI, smoothing);
-        } else if ((slab->gamepad.buttons >> GAMEPAD_BUTTON_TRIANGLE) & 1) {
+        } else if (GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_TRIANGLE)) {
             LOW_PASS_FILTER(slab->input.leg_positions[i], sign * M_PI / 2, smoothing);
-        } else if ((slab->gamepad.buttons >> GAMEPAD_BUTTON_SQUARE) & 1) {
+        } else if (GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_SQUARE)) {
             LOW_PASS_FILTER(slab->input.leg_positions[i], -sign * M_PI / 2, smoothing);
         } else {
             slab->input.leg_positions[i] -= 0.05f * (stick[2] + stick[3] * sign);
@@ -69,10 +69,10 @@ static void slab_gamepad_input_update(Slab* slab) {
                     slab->config.min_leg_position, slab->config.max_leg_position);
         }
     }
-    if ((slab->gamepad.buttons >> GAMEPAD_BUTTON_CIRCLE) & 1) {
+    if (GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_CIRCLE)) {
         slab->input.body_incline += 0.005;
         slab->state.speed_error_integral += 0.01 / slab->config.speed_i_gain;
-    } else if ((slab->gamepad.buttons >> GAMEPAD_BUTTON_CROSS) & 1) {
+    } else if (GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_CROSS)) {
         slab->input.body_incline -= 0.005;
         slab->state.speed_error_integral -= 0.01 / slab->config.speed_i_gain;
     }
@@ -129,9 +129,7 @@ static void slab_state_update(Slab* slab) {
             slab->config.imu_axis_remap);
     // calculate roll
     slab->state.body_incline = quat_to_roll((float*) &slab->state.orientation);
-    // TODO transform wheel velocity to body frame
-
-    // calculate ground contacts
+    // calculate ground contacts from verticies
     const float L = slab->config.body_length / 2;
     const float l = slab->config.leg_length;
     const float a = slab->motors[MOTOR_ID_FRONT_LEGS].estimate.position;
@@ -142,48 +140,60 @@ static void slab_state_update(Slab* slab) {
             {0, L, 0},
             {0, -L, 0},
     };
+    // convert verticies to global frame
     for (int i = 0; i < 4; ++i) {
         QUAT_TRANSFORM((float*) &slab->state.verticies[i], (float*) &slab->state.orientation,
                 (float*) &verticies_local[i]);
     }
+    // find ground level
     float ground_z = slab->state.verticies[0].z;
     for (int i = 1; i < 4; ++i) {
         ground_z = MIN(ground_z, slab->state.verticies[i].z);
     }
-    uint8_t ground_contacts = slab->state.ground_contacts;
     for (int i = 0; i < 4; ++i) {
         slab->state.verticies[i].z -= ground_z;
-        if ((slab->state.ground_contacts >> i) & 1) {
+        if (GET_BIT(slab->state.ground_contacts, i)) {
             if (slab->state.verticies[i].z > slab->config.ground_rise_threshold) {
-                ground_contacts &= ~(1 << i);
+                slab->state.ground_contacts &= ~(1 << i);
             }
         } else {
             if (slab->state.verticies[i].z < slab->config.ground_fall_threshold) {
-                ground_contacts |= 1 << i;
+                slab->state.ground_contacts |= 1 << i;
             }
         }
     }
-
-    if (slab->state.ground_contacts != ground_contacts) {
+    // compute body velocity based on speed feedback of motors with ground contact
+    // TODO compute angular velocity, maybe based on gyro
+    // keep in mind skid stear ratio is different depending on leg positions
+    slab->state.linear_velocity = 0;
+    int ground_wheels = 0;
+    for (int i = 0; i < 4; ++i) {
+        if (GET_BIT(slab->state.ground_contacts, i / 2)) {
+            ++ground_wheels;
+            slab->state.linear_velocity += slab->motors[2 + i].estimate.velocity;
+        }
+    }
+    slab->state.linear_velocity *= 0.5f * slab->config.wheel_diameter / ground_wheels;
+    // turn on balance control when only one leg has ground contact
+    bool balance_active = slab->state.ground_contacts == 1 || slab->state.ground_contacts == 2;
+    // reset control states on transition
+    if (slab->state.balance_active != balance_active) {
+        slab->state.balance_active = balance_active;
         slab->input.body_incline = slab->state.body_incline;
         slab->input.linear_velocity = 0;
         slab->input.leg_positions[0] = slab->motors[0].estimate.position;
         slab->input.leg_positions[1] = slab->motors[1].estimate.position;
         slab->state.speed_error_integral = 0;
     }
-    slab->state.ground_contacts = ground_contacts;
 }
 
 void slab_update(Slab* slab) {
     slab_state_update(slab);
     slab_gamepad_input_update(slab);
-    switch (slab->state.ground_contacts) {
-        case 1:
-        case 2:
-            slab_balance_controller_update(slab);
-            break;
-        default:
-            slab_ground_controller_update(slab);
+    if (slab->state.balance_active) {
+        slab_balance_controller_update(slab);
+    } else {
+        slab_ground_controller_update(slab);
     }
 #if 0
     imu_axis_remap(&slab->imu, slab->config.imu_axis_remap);
