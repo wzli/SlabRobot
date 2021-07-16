@@ -75,7 +75,8 @@ static void slab_gamepad_input_update(Slab* slab) {
     for (int i = 0, sign = -1; i < 2; ++i, sign *= -1) {
         bool only_contact = slab->state.ground_contacts == i + 1;
         if (!GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_R1)) {
-            slab->input.body_incline += 0.5f * leg_speed * legs_input[Y];
+            slab->input.body_incline -=
+                    0.5f * leg_speed * legs_input[Y] * SGN(slab->state.body_incline);
             int dir = slab->state.balance_active ? (only_contact ? 2 : -1) : 1;
             slab->input.leg_positions[i] +=
                     leg_speed * (legs_input[X] * (1 - only_contact) + legs_input[Y] * sign * dir);

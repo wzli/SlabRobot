@@ -88,7 +88,6 @@ class Simulation:
         for wheel in self.wheels:
             p.enableJointForceTorqueSensor(self.robot, wheel)
         self.slab = slab_ctypes.Slab()
-        """
         # start with legs folded
         for i, leg in enumerate(self.legs):
             p.resetJointState(self.robot, leg, -np.pi, 0)
@@ -99,6 +98,7 @@ class Simulation:
         pos = (0, 0, 1.2)  # x y z
         orn = (1, 0, 0, 1)  # qx qy qz qw
         p.resetBasePositionAndOrientation(self.robot, pos, orn)
+        """
 
         # set slab config
         self.slab.config.max_wheel_speed = 40  # rad/s
