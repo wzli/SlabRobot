@@ -23,28 +23,40 @@ static void axis_remap(Vector3F* out, const Vector3F* in, const int8_t* remap) {
 }
 
 static void slab_gamepad_input_update(Slab* slab) {
-    // override balance control with trigger buttons
-    if (GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_L1)) {
-        slab->state.balance_active = false;
-    } else if (GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_R1)) {
-        slab->state.balance_active = true;
-    }
+    enum { X, Y, RX, RY };
     // parse stick to [lx, ly, rx, ry] normalized to 1
-    float stick[4] = {0};
+    float sticks[4] = {0};
     for (int i = 0; i < 4; ++i) {
         if (ABS((&slab->gamepad.left_stick.x)[i]) >= slab->config.joystick_threshold) {
-            stick[i] = -((&slab->gamepad.left_stick.x)[i] + 0.5f) / 127.5f;
+            sticks[i] = -((&slab->gamepad.left_stick.x)[i] + 0.5f) / 127.5f;
         }
     }
-    // parse dpad to normalized vector
-    float dpad_x = GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_LEFT) -
-                   GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_RIGHT);
-    float dpad_y = GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_UP) -
-                   GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_DOWN);
-    if (dpad_x != 0 && dpad_y != 0) {
-        float inv_norm = 1.0f / sqrtf(SQR(dpad_x) + SQR(dpad_y));
-        dpad_x *= inv_norm;
-        dpad_y *= inv_norm;
+    // parse buttons to axis vector
+    float buttons[4] = {
+            GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_LEFT) -
+                    GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_RIGHT),
+            GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_UP) -
+                    GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_DOWN),
+            GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_SQUARE) -
+                    GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_CIRCLE),
+            GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_TRIANGLE) -
+                    GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_CROSS),
+    };
+    // normalize button axis and scale by trigger
+    for (int i = 0; i < 2; ++i) {
+        float* axis = buttons + (2 * i);
+        if (axis[X] != 0 && axis[Y] != 0) {
+            float inv_norm = 1.0f / vec_norm(axis, 2);
+            axis[X] *= inv_norm;
+            axis[Y] *= inv_norm;
+        }
+        float trigger = (&slab->gamepad.left_trigger)[i] / 255.0f;
+        axis[X] *= trigger;
+        axis[Y] *= trigger;
+    }
+    // disable balance control with L1
+    if (GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_L1)) {
+        slab->state.balance_active = false;
     }
     // scale velocity input to max wheel speed
     float speed_scale = 0.5f * slab->config.wheel_diameter * slab->config.max_wheel_speed;
@@ -52,38 +64,36 @@ static void slab_gamepad_input_update(Slab* slab) {
         speed_scale /= 4;
     }
     // map L-stick to velocity input (dpad overrides stick)
-    if (dpad_x != 0 || dpad_y != 0) {
-        speed_scale *= slab->gamepad.left_trigger / 255.0f;
-        slab->input.linear_velocity = dpad_y * speed_scale;
-        slab->input.angular_velocity = dpad_x * speed_scale / (0.5f * slab->config.wheel_distance);
-    } else {
-        slab->input.linear_velocity = stick[1] * speed_scale;
-        slab->input.angular_velocity = stick[0] * speed_scale / slab->config.wheel_distance;
-    }
-    // map R-stick and buttons to leg positions
-    float smoothing = 0.05f * (slab->gamepad.right_trigger / 255.0f);
+    float* velocity_input = buttons[X] == 0 && buttons[Y] == 0 ? sticks : buttons;
+    slab->input.linear_velocity = velocity_input[Y] * speed_scale;
+    slab->input.angular_velocity =
+            velocity_input[X] * speed_scale / (0.5f * slab->config.wheel_distance);
+    // map R-stick to velocity input (button overrides stick)
+    float* legs_input = (buttons[RX] == 0 && buttons[RY] == 0 ? sticks : buttons) + 2;
+    // leg position control logic
+    const float leg_speed = 0.02f;
     for (int i = 0, sign = -1; i < 2; ++i, sign *= -1) {
-        if (slab->state.ground_contacts == i + 1) {
-            continue;
-        } else if (GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_CIRCLE)) {
-            // TODO need to clamp after increment
-            slab->input.leg_positions[!i] += smoothing / 4;
-            slab->input.leg_positions[i] += smoothing / 8;
-            slab->input.body_incline -= smoothing / 8;
-        } else if (GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_CROSS)) {
-            slab->input.leg_positions[!i] -= smoothing / 4;
-            slab->input.leg_positions[i] -= smoothing / 8;
-            slab->input.body_incline += smoothing / 8;
-        } else if (GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_START)) {
-            LOW_PASS_FILTER(slab->input.leg_positions[i], -M_PI, smoothing);
-        } else if (GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_TRIANGLE)) {
-            LOW_PASS_FILTER(slab->input.leg_positions[i], sign * M_PI / 2, smoothing);
-        } else if (GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_SQUARE)) {
-            LOW_PASS_FILTER(slab->input.leg_positions[i], -sign * M_PI / 2, smoothing);
-        } else {
-            slab->input.leg_positions[i] -= 0.05f * (stick[2] + stick[3] * sign);
+        bool only_contact = slab->state.ground_contacts == i + 1;
+        if (!GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_R1)) {
+            slab->input.body_incline += 0.5f * leg_speed * legs_input[Y];
+            int dir = slab->state.balance_active ? (only_contact ? 2 : -1) : 1;
+            slab->input.leg_positions[i] +=
+                    leg_speed * (legs_input[X] * (1 - only_contact) + legs_input[Y] * sign * dir);
             slab->input.leg_positions[i] = CLAMP(slab->input.leg_positions[i],
                     slab->config.min_leg_position, slab->config.max_leg_position);
+        } else if (!only_contact) {
+            if (SQR(legs_input[X]) > SQR(legs_input[Y])) {
+                LOW_PASS_FILTER(slab->input.body_incline, SGN(slab->input.body_incline) * M_PI_2,
+                        leg_speed * ABS(legs_input[X]));
+                LOW_PASS_FILTER(slab->input.leg_positions[i], SGN(legs_input[X]) * M_PI,
+                        leg_speed * ABS(legs_input[X]));
+            } else {
+                LOW_PASS_FILTER(slab->input.body_incline,
+                        (SGN(slab->input.body_incline) + sign * SGN(legs_input[Y])) * M_PI_2,
+                        0.5f * leg_speed * ABS(legs_input[Y]));
+                LOW_PASS_FILTER(slab->input.leg_positions[i], sign * SGN(legs_input[Y]) * M_PI_2,
+                        leg_speed * ABS(legs_input[Y]));
+            }
         }
     }
 }

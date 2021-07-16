@@ -252,11 +252,10 @@ class Simulation:
         libslab.slab_update(ctypes.byref(self.slab))
         # print_ctype(self.slab.motors[2].estimate)
         # print_ctype(self.slab.motors[1])
-        print_ctype(self.slab.input)
+        # print_ctype(self.slab.input)
         # print_ctype(self.slab.imu)
         # print_ctype(self.slab.gamepad)
         print_ctype(self.slab.state)
-        print_ctype(self.slab.motors[2].estimate.velocity)
 
     def run(self):
         while True:
