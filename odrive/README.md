@@ -42,7 +42,7 @@ See [CAN Protocol Docs](https://docs.odriverobotics.com/can-protocol).
  
 
 # Setup
-First follow [wiring guide] (https://docs.odriverobotics.com/#wiring-up-the-odrive) to hook things up.
+First follow [wiring guide](https://docs.odriverobotics.com/#wiring-up-the-odrive) to hook things up.
 Then refer to [params guide](https://docs.odriverobotics.com/#configure-m0) to configure each axis.
 
 - **Double check wiring things might burn if hooked up incorrectly!** 
