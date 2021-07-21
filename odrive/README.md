@@ -10,11 +10,11 @@ See [Downloading and Installing Tools](https://docs.odriverobotics.com/#download
 
 # Firmware
 Should first update to latest firmware by running `odrivetool dfu`.
-See [docs] (https://docs.odriverobotics.com/#firmware) for details.
+See [docs](https://docs.odriverobotics.com/#firmware) for details.
 If that runs into issues though, don't bother troubleshooting *dfu* it's way more simple and reliable to just build firmware and flash through STlink.
 
 ## Firmware Development
-Refer to [docs] (https://docs.odriverobotics.com/developer-guide), in summary:
+Refer to [docs](https://docs.odriverobotics.com/developer-guide), in summary:
 
 - Install dependencies `gcc-arm-embedded, openocd, tup, etc`.
 - `git clone https://github.com/odriverobotics/ODrive` and pull the latest release.
