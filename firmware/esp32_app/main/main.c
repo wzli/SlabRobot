@@ -61,45 +61,8 @@ MXGEN(struct, TaskStatus)
     X(uint32_t, odrive_fetch, )
 MXGEN(struct, ErrorCounters)
 
-#define TYPEDEF_Ps3Gamepad(X, _)   \
-    X(uint32_t, buttons, )         \
-    X(uint32_t, buttons_up, )      \
-    X(uint32_t, buttons_down, )    \
-    X(int8_t, l_stick, [2])        \
-    X(int8_t, r_stick, [2])        \
-    X(uint8_t, triggers, [2])      \
-    X(int16_t, accelerometer, [3]) \
-    X(int16_t, gyroscope_z, )      \
-    X(uint8_t, battery_status, )
-MXGEN(struct, Ps3Gamepad)
-
-typedef enum {
-    PS3_SELECT,
-    PS3_L3,
-    PS3_R3,
-    PS3_START,
-
-    PS3_UP,
-    PS3_RIGHT,
-    PS3_DOWN,
-    PS3_LEFT,
-
-    PS3_L2,
-    PS3_R2,
-    PS3_L1,
-    PS3_R1,
-
-    PS3_TRIANGLE,
-    PS3_CIRCLE,
-    PS3_CROSS,
-    PS3_SQUARE,
-
-    PS3_HOME,
-} Ps3Button;
-
 #define TYPEDEF_AppStatus(X, _) \
     X(uint32_t, tick, )         \
-    X(Ps3Gamepad, gamepad, )    \
     _(TaskStatus, tasks, [8])   \
     X(CanStatus, can, )         \
     X(ErrorCounters, error_counters, )
@@ -113,7 +76,7 @@ bool imu_read(Imu* imu, ImuMsg* imu_msg);
 
 typedef struct {
     Imu* imu;
-    SlabContext ctx;
+    Slab slab;
     AppStatus status;
     TaskHandle_t control_task;
     TaskHandle_t monitor_task;
@@ -166,17 +129,21 @@ static void ps3_init() {
 
 static void control_loop(void* pvParameters) {
     App* app = (App*) pvParameters;
-    // static char text_buf[512];
+    static char text_buf[512];
     // Match IMU DMP output rate of 100Hz
     // ODrive encoder updates also configured to 100Hz
     for (TickType_t tick = xTaskGetTickCount();; vTaskDelayUntil(&tick, 1)) {
         // printf("t%d\n", tick);
-        app->status.error_counters.imu_fetch += !imu_read(app->imu, &app->ctx.imu);
+        app->status.error_counters.imu_fetch += !imu_read(app->imu, &app->slab.imu);
         app->status.error_counters.odrive_fetch +=
-                ESP_OK != odrive_receive_updates(app->ctx.motors, 2);
+                ESP_OK != odrive_receive_updates(app->slab.motors, 2);
         // ImuMsg_to_json(&app->imu_msg, app->json);
         // Vector3F_to_json(&app->imu_msg.linear_acceleration, app->json);
         // puts(app->json);
+        if (app->slab.gamepad.buttons) {
+            GamepadMsg_to_json(&app->slab.gamepad, text_buf);
+            puts(text_buf);
+        }
     }
 }
 
@@ -260,23 +227,14 @@ static int dir_create() {
 }
 
 static void ps3_gamepad_callback(void* pvParameters, ps3_t ps3_state, ps3_event_t ps3_event) {
-    TRY_STATIC_ASSERT(sizeof(ps3_button_t) <= sizeof(uint32_t), "buttons type mismatch");
-    Ps3Gamepad* gamepad = &((App*) pvParameters)->status.gamepad;
-    memcpy(&gamepad->buttons, &ps3_state.button, sizeof(ps3_button_t));
-    memcpy(&gamepad->buttons_up, &ps3_event.button_up, sizeof(ps3_button_t));
-    memcpy(&gamepad->buttons_down, &ps3_event.button_down, sizeof(ps3_button_t));
-    gamepad->buttons &= 0x1FFFF;
-    gamepad->buttons_up &= 0x1FFFF;
-    gamepad->buttons_down &= 0x1FFFF;
-    gamepad->l_stick[0] = ps3_state.analog.stick.lx;
-    gamepad->l_stick[1] = ps3_state.analog.stick.ly;
-    gamepad->r_stick[0] = ps3_state.analog.stick.rx;
-    gamepad->r_stick[1] = ps3_state.analog.stick.ry;
-    gamepad->triggers[0] = ps3_state.analog.button.l2;
-    gamepad->triggers[1] = ps3_state.analog.button.r2;
-    memcpy(&gamepad->accelerometer, &ps3_state.sensor.accelerometer, 3 * sizeof(uint16_t));
-    gamepad->gyroscope_z = ps3_state.sensor.gyroscope.z;
-    gamepad->battery_status = ps3_state.status.battery;
+    GamepadMsg* gamepad = &((App*) pvParameters)->slab.gamepad;
+    memcpy(&gamepad->buttons, &ps3_state.button, 2);
+    gamepad->left_stick.x = ps3_state.analog.stick.lx;
+    gamepad->left_stick.y = ps3_state.analog.stick.ly;
+    gamepad->right_stick.x = ps3_state.analog.stick.rx;
+    gamepad->right_stick.y = ps3_state.analog.stick.ry;
+    gamepad->left_trigger = ps3_state.analog.button.l2;
+    gamepad->right_trigger = ps3_state.analog.button.r2;
 }
 
 void app_main(void) {
