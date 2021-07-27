@@ -29,6 +29,18 @@
 #define PIN_CRX 25
 #endif
 
+#define MOTOR_COMMS_TIMEOUT_TICKS 50
+#define IMU_COMMS_TIMEOUT_TICKS 50
+#define GAMEPAD_COMMS_TIMEOUT_TICKS 50
+
+typedef struct {
+    bool homing_required : 1;
+    bool motor_error : 1;
+    bool motor_comms_timeout : 1;
+    bool imu_comms_timeout : 1;
+    bool gamepad_comms_timeout : 1;
+} AppError;
+
 // rx_overrun_count exist in espidf > 4.3
 #define TYPEDEF_CanStatus(X, _)      \
     X(uint32_t, state, )             \
@@ -56,16 +68,18 @@ MXGEN(struct, CanStatus)
     X(uint32_t, xCoreID, )
 MXGEN(struct, TaskStatus)
 
-#define TYPEDEF_ErrorCounters(X, _) \
-    X(uint32_t, imu_fetch, )        \
-    X(uint32_t, odrive_fetch, )
-MXGEN(struct, ErrorCounters)
+#define TYPEDEF_ErrorCounter(X, _) \
+    X(int32_t, running, )          \
+    X(int32_t, total, )
+MXGEN(struct, ErrorCounter)
 
-#define TYPEDEF_AppStatus(X, _) \
-    X(uint32_t, tick, )         \
-    _(TaskStatus, tasks, [8])   \
-    X(CanStatus, can, )         \
-    X(ErrorCounters, error_counters, )
+#define TYPEDEF_AppStatus(X, _)           \
+    X(uint32_t, tick, )                   \
+    _(TaskStatus, tasks, [8])             \
+    X(CanStatus, can, )                   \
+    X(ErrorCounter, imu_comms_missed, )   \
+    X(ErrorCounter, motor_comms_missed, ) \
+    X(uint32_t, error, )
 MXGEN(struct, AppStatus)
 
 esp_err_t odrive_receive_updates(MotorMsg* motors, uint8_t len);
@@ -82,6 +96,16 @@ typedef struct {
     TaskHandle_t monitor_task;
     int dir_idx;
 } App;
+
+static int update_error_counter(ErrorCounter* counter, int error_count) {
+    if (error_count) {
+        counter->running += error_count;
+        counter->total += error_count;
+    } else {
+        counter->running = 0;
+    }
+    return counter->running;
+}
 
 static void sdcard_init() {
     sdmmc_host_t host = SDMMC_HOST_DEFAULT();
@@ -127,16 +151,35 @@ static void ps3_init() {
             mac[2], mac[3], mac[4], mac[5]);
 }
 
+static void ps3_gamepad_callback(void* pvParameters, ps3_t ps3_state, ps3_event_t ps3_event) {
+    GamepadMsg* gamepad = &((App*) pvParameters)->slab.gamepad;
+    memcpy(&gamepad->buttons, &ps3_state.button, 2);
+    gamepad->left_stick.x = ps3_state.analog.stick.lx;
+    gamepad->left_stick.y = ps3_state.analog.stick.ly;
+    gamepad->right_stick.x = ps3_state.analog.stick.rx;
+    gamepad->right_stick.y = ps3_state.analog.stick.ry;
+    gamepad->left_trigger = ps3_state.analog.button.l2;
+    gamepad->right_trigger = ps3_state.analog.button.r2;
+}
+
 static void control_loop(void* pvParameters) {
     App* app = (App*) pvParameters;
+    AppError* app_error = (AppError*) &app->status.error;
     static char text_buf[512];
     // Match IMU DMP output rate of 100Hz
     // ODrive encoder updates also configured to 100Hz
     for (TickType_t tick = xTaskGetTickCount();; vTaskDelayUntil(&tick, 1)) {
         // printf("t%d\n", tick);
-        app->status.error_counters.imu_fetch += !imu_read(app->imu, &app->slab.imu);
-        app->status.error_counters.odrive_fetch +=
-                ESP_OK != odrive_receive_updates(app->slab.motors, 2);
+
+        // fetch imu updates
+        app_error->imu_comms_timeout =
+                IMU_COMMS_TIMEOUT_TICKS < update_error_counter(&app->status.imu_comms_missed,
+                                                  !imu_read(app->imu, &app->slab.imu));
+        // fetch motor updates
+        app_error->motor_comms_timeout =
+                MOTOR_COMMS_TIMEOUT_TICKS <
+                update_error_counter(&app->status.motor_comms_missed,
+                        ESP_OK != odrive_receive_updates(app->slab.motors, 2));
         // ImuMsg_to_json(&app->imu_msg, app->json);
         // Vector3F_to_json(&app->imu_msg.linear_acceleration, app->json);
         // puts(app->json);
@@ -144,6 +187,11 @@ static void control_loop(void* pvParameters) {
             GamepadMsg_to_json(&app->slab.gamepad, text_buf);
             puts(text_buf);
         }
+        // disable control loop during error state
+        if (app->status.error) {
+            continue;
+        }
+        // control code below here
     }
 }
 
@@ -224,17 +272,6 @@ static int dir_create() {
     }
     ESP_LOGI(pcTaskGetName(NULL), "f_mkdir sdcard/%d success", dir_idx);
     return dir_idx;
-}
-
-static void ps3_gamepad_callback(void* pvParameters, ps3_t ps3_state, ps3_event_t ps3_event) {
-    GamepadMsg* gamepad = &((App*) pvParameters)->slab.gamepad;
-    memcpy(&gamepad->buttons, &ps3_state.button, 2);
-    gamepad->left_stick.x = ps3_state.analog.stick.lx;
-    gamepad->left_stick.y = ps3_state.analog.stick.ly;
-    gamepad->right_stick.x = ps3_state.analog.stick.rx;
-    gamepad->right_stick.y = ps3_state.analog.stick.ry;
-    gamepad->left_trigger = ps3_state.analog.button.l2;
-    gamepad->right_trigger = ps3_state.analog.button.r2;
 }
 
 void app_main(void) {
