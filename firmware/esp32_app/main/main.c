@@ -77,8 +77,9 @@ MXGEN(struct, ErrorCounter)
     X(uint32_t, tick, )                   \
     _(TaskStatus, tasks, [8])             \
     X(CanStatus, can, )                   \
-    X(ErrorCounter, imu_comms_missed, )   \
     X(ErrorCounter, motor_comms_missed, ) \
+    X(ErrorCounter, imu_comms_missed, )   \
+    X(uint32_t, gamepad_timestamp, )      \
     X(uint32_t, error, )
 MXGEN(struct, AppStatus)
 
@@ -152,7 +153,8 @@ static void ps3_init() {
 }
 
 static void ps3_gamepad_callback(void* pvParameters, ps3_t ps3_state, ps3_event_t ps3_event) {
-    GamepadMsg* gamepad = &((App*) pvParameters)->slab.gamepad;
+    App* app = (App*) pvParameters;
+    GamepadMsg* gamepad = &app->slab.gamepad;
     memcpy(&gamepad->buttons, &ps3_state.button, 2);
     gamepad->left_stick.x = ps3_state.analog.stick.lx;
     gamepad->left_stick.y = ps3_state.analog.stick.ly;
@@ -160,6 +162,7 @@ static void ps3_gamepad_callback(void* pvParameters, ps3_t ps3_state, ps3_event_
     gamepad->right_stick.y = ps3_state.analog.stick.ry;
     gamepad->left_trigger = ps3_state.analog.button.l2;
     gamepad->right_trigger = ps3_state.analog.button.r2;
+    app->status.gamepad_timestamp = xTaskGetTickCount();
 }
 
 static void control_loop(void* pvParameters) {
@@ -171,15 +174,20 @@ static void control_loop(void* pvParameters) {
     for (TickType_t tick = xTaskGetTickCount();; vTaskDelayUntil(&tick, 1)) {
         // printf("t%d\n", tick);
 
-        // fetch imu updates
-        app_error->imu_comms_timeout =
-                IMU_COMMS_TIMEOUT_TICKS < update_error_counter(&app->status.imu_comms_missed,
-                                                  !imu_read(app->imu, &app->slab.imu));
         // fetch motor updates
         app_error->motor_comms_timeout =
                 MOTOR_COMMS_TIMEOUT_TICKS <
                 update_error_counter(&app->status.motor_comms_missed,
                         ESP_OK != odrive_receive_updates(app->slab.motors, 2));
+        // fetch imu updates
+        app_error->imu_comms_timeout =
+                IMU_COMMS_TIMEOUT_TICKS < update_error_counter(&app->status.imu_comms_missed,
+                                                  !imu_read(app->imu, &app->slab.imu));
+        // detect gamepad timeout and zero input
+        if ((app_error->gamepad_comms_timeout =
+                            tick > GAMEPAD_COMMS_TIMEOUT_TICKS + app->status.gamepad_timestamp)) {
+            app->slab.gamepad = (GamepadMsg){0};
+        }
         // ImuMsg_to_json(&app->imu_msg, app->json);
         // Vector3F_to_json(&app->imu_msg.linear_acceleration, app->json);
         // puts(app->json);
