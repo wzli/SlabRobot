@@ -1,16 +1,6 @@
 #include "math_utils.h"
 #include "slab_controller.h"
 
-void matrix_print(float* m, int rows, int cols) {
-    for (int row = 0; row < rows; ++row) {
-        for (int col = 0; col < cols; ++col) {
-            printf("%g\t", m[col + row * cols]);
-        }
-        puts("");
-    }
-    puts("");
-}
-
 static void axis_remap(Vector3F* out, const Vector3F* in, const int8_t* remap) {
     for (int i = 0; i < 3; ++i) {
         int axis = remap[i] & 3;
@@ -112,13 +102,19 @@ static void slab_differential_drive_update(Slab* slab, float v_lin, float v_ang)
     slab->motors[MOTOR_ID_FRONT_RIGHT_WHEEL].input.velocity = (legs & 1) ? right_wheel_speed : 0;
     slab->motors[MOTOR_ID_BACK_LEFT_WHEEL].input.velocity = (legs & 2) ? left_wheel_speed : 0;
     slab->motors[MOTOR_ID_BACK_RIGHT_WHEEL].input.velocity = (legs & 2) ? right_wheel_speed : 0;
+    // velocity control mode
+    for (int i = 0; i < 4; ++i) {
+        slab->motors[MOTOR_ID_FRONT_LEFT_WHEEL + i].input.control_mode =
+                MOTOR_CONTROL_MODE_VELOCITY;
+    }
 }
 
 static void slab_ground_controller_update(Slab* slab) {
     slab_differential_drive_update(slab, slab->input.linear_velocity, slab->input.angular_velocity);
     for (int i = 0; i < 2; ++i) {
-        slab->motors[MOTOR_ID_FRONT_LEGS + i].input.position = CLAMP(slab->input.leg_positions[i],
+        slab->motors[i].input.position = CLAMP(slab->input.leg_positions[i],
                 slab->config.min_leg_position, slab->config.max_leg_position);
+        slab->motors[i].input.control_mode = MOTOR_CONTROL_MODE_POSITION;
     }
 }
 
@@ -137,6 +133,7 @@ static void slab_balance_controller_update(Slab* slab) {
                                     GET_BIT(slab->state.ground_contacts, i) * leg_position_bias;
         slab->motors[i].input.position = CLAMP(
                 leg_position_output, slab->config.min_leg_position, slab->config.max_leg_position);
+        slab->motors[i].input.control_mode = MOTOR_CONTROL_MODE_POSITION;
     }
 }
 
@@ -215,59 +212,4 @@ void slab_update(Slab* slab) {
     } else {
         slab_ground_controller_update(slab);
     }
-#if 0
-    imu_axis_remap(&slab->imu, slab->config.imu_axis_remap);
-    float* q = (float*) &slab->imu.orientation;
-    float rot[3 * 3];
-    QUAT_TO_ROTATION_MATRIX(rot, q);
-    printf("a r %f p %f y %f\n", quat_to_roll(q), quat_to_pitch(q), quat_to_yaw(q));
-    printf("b r %f p %f y %f\n", rot_to_roll(rot), rot_to_pitch(rot), rot_to_yaw(rot));
-
-    // float a[2 * 2] = {3, 5, -1, 1};
-    // float b[2 * 3] = {-2, 2, 3, 3, 5, -2};
-    // float c[4] = {-5, 3, 4, 3};
-    // float d[4] = {4, 3.9, -1, -3};
-
-    quat_normalize(q);
-    float e[4] = {0, 1, 0, 0};
-    // float e[4] = {1, 2, 3, 4};
-    float f[4] = {0};
-    float g[4] = {0};
-    QUAT_CONJUGATE(f, q);
-    QUAT_MULTIPLY(g, e, f);
-    QUAT_MULTIPLY(f, q, g);
-    VEC_TRANSFORM(g + 1, rot, e + 1, 3, 3, 1);
-    // QUAT_TRANSFORM(f + 1, q, e + 1);
-    f[0] = 0;
-    g[0] = 0;
-
-    // MAT_TRANSPOSE(a, 2);
-
-    // MAT_ADD(d, a, a, 2, 2);
-    // matrix_print(c, 3, 1);
-    // quat_from_angle_axis(d, M_PI / 2, c);
-    // QUAT_MULTIPLY(e, c, d);
-    puts("");
-    matrix_print(f, 1, 4);
-    matrix_print(g, 1, 4);
-
-    VEC_OUTER(e, e, e, 4, 4);
-    VEC_MULTIPLY(e, e, e[VEC_I], 4);
-    matrix_print(e, 1, 4);
-    float k[4] = {0};
-    float dist = vec_distance(k, e, 4);
-    float max, min;
-    VEC_MAX(max, e, 4);
-    VEC_MIN(min, e, 4);
-    printf("%f %f %f\n", dist, max, min);
-
-    // VEC_MUL(c, a, b, 2, 2, 3);
-    // MAT_MULTIPLY(c, a, b, 2, 2, 3);
-
-    // matrix_print(c, 2, 3);
-
-    // float out = 0;
-    // DOT(out, a, b, 3, 1);
-    // printf("= %f\n", out);
-#endif
 }

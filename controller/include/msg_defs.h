@@ -33,32 +33,27 @@ MXGEN(struct, ImuMsg)
 // velocity in units of (rad/s)
 // torque in units of (Nm)
 
-#define TYPEDEF_MotorStatus(X, _) \
-    X(uint32_t, error, )          \
-    X(uint32_t, state, )
-MXGEN(struct, MotorStatus)
+typedef enum {
+    MOTOR_CONTROL_MODE_POSITION = 1,
+    MOTOR_CONTROL_MODE_VELOCITY = 2,
+    MOTOR_CONTROL_MODE_TORQUE = 4,
+} MotorControlMode;
+
+#define TYPEDEF_MotorInput(X, _) \
+    X(float, position, )         \
+    X(float, velocity, )         \
+    X(float, torque, )           \
+    X(uint8_t, control_mode, )
+MXGEN(struct, MotorInput)
 
 #define TYPEDEF_MotorEstimate(X, _) \
     X(float, position, )            \
     X(float, velocity, )
 MXGEN(struct, MotorEstimate)
 
-#define TYPEDEF_MotorMode(X, _) \
-    X(int32_t, control, )       \
-    X(int32_t, input, )
-MXGEN(struct, MotorMode)
-
-#define TYPEDEF_MotorInput(X, _) \
-    X(float, position, )         \
-    X(float, velocity, )         \
-    X(float, torque, )
-MXGEN(struct, MotorInput)
-
-#define TYPEDEF_MotorMsg(X, _)   \
-    X(MotorStatus, status, )     \
-    X(MotorEstimate, estimate, ) \
-    X(MotorMode, mode, )         \
-    X(MotorInput, input, )
+#define TYPEDEF_MotorMsg(X, _) \
+    X(MotorInput, input, )     \
+    X(MotorEstimate, estimate, )
 MXGEN(struct, MotorMsg)
 
 ////////////////////////////////////////////////////////////////////////////////
