@@ -7,3 +7,6 @@
 [submodule "submodules/esp32-ps3"]
 	path = submodules/esp32-ps3
 	url = https://github.com/jvpernis/esp32-ps3.git
+[submodule "submodules/odrive_can_espidf"]
+	path = submodules/odrive_can_espidf
+	url = https://github.com/wzli/odrive_can_espidf.git
