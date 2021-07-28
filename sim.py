@@ -1,150 +1,270 @@
 #!/usr/bin/env python3
 
-import numpy as np
-import matplotlib.pyplot as plt
 import pybullet as p
 import pybullet_data
+import numpy as np
 import time
+import inputs, os, io, fcntl
+import json
 
-physicsClient = p.connect(p.GUI)
-p.setAdditionalSearchPath(pybullet_data.getDataPath())  # optionally
-planeId = p.loadURDF("plane.urdf")
-p.setGravity(0, 0, -9.8)
+import ctypes
+from controller.build import slab_ctypes
 
-robot = p.loadURDF("urdf/robot.urdf")
-joints = {p.getJointInfo(robot, i)[1]: i for i in range(p.getNumJoints(robot))}
-legs = [joints[b"front_leg"], joints[b"back_leg"]]
-wheels = [
-    joints[b"front_left_wheel"],
-    joints[b"front_right_wheel"],
-    joints[b"back_left_wheel"],
-    joints[b"back_right_wheel"],
-]
-
-# start with legs folded
-for leg in legs:
-    p.resetJointState(robot, leg, -np.pi, 0)
-
-reset_button = p.addUserDebugParameter("reset", 1, 0, 0)
-MAX_SPEED = 10
-speed_param = p.addUserDebugParameter("speed", -MAX_SPEED, MAX_SPEED, 0)
-spin_param = p.addUserDebugParameter("spin", -MAX_SPEED, MAX_SPEED, 0)
-
-# 0 front right
-# 1 front left
-# 2 back right
-# 3 back left
+libslab = slab_ctypes._libs["libslab_controller.so"]
 
 
-def set_wheel_speed(v, w=0):
-    to_wheel_speeds = np.array([[-1, 1], [1, 1], [-1, 1], [1, 1]])
-    p.setJointMotorControlArray(
-        robot,
-        wheels,
-        p.VELOCITY_CONTROL,
-        targetVelocities=to_wheel_speeds.dot([v, w]).clip(
-            -100 * MAX_SPEED, 100 * MAX_SPEED
-        ),
-    )
+def ctype_to_dict(x):
+    if isinstance(x, ctypes.Array):
+        return [ctype_to_dict(element) for element in x]
+    if not hasattr(x, "_fields_"):
+        return x
+    return {field: ctype_to_dict(getattr(x, field)) for field, _ in x._fields_}
 
 
-def slab():
-    p.setJointMotorControlArray(
-        robot,
-        legs,
-        p.POSITION_CONTROL,
-        targetPositions=[-np.pi, -np.pi],
-        positionGains=[0.01, 0.01],
-    )
-    set_wheel_speed(
-        p.readUserDebugParameter(speed_param), p.readUserDebugParameter(spin_param)
-    )
+def print_ctype(x):
+    print(json.dumps(ctype_to_dict(x), indent=2))
 
 
-def table():
-    p.setJointMotorControlArray(
-        robot,
-        legs,
-        p.POSITION_CONTROL,
-        targetPositions=[np.pi / 2, -np.pi / 2],
-        positionGains=[0.004, 0.002],
-    )
-    set_wheel_speed(
-        p.readUserDebugParameter(speed_param), p.readUserDebugParameter(spin_param)
-    )
+class Simulation:
+    def __init__(self):
+        self.init_inputs()
+        # pybullet setup
+        physicsClient = p.connect(p.GUI)
+        p.setAdditionalSearchPath(pybullet_data.getDataPath())
+        # add user interface
+        self.reset_button_count = 0
+        self.reset_button = p.addUserDebugParameter("reset", 1, 0, 0)
+        self.center_button_count = 0
+        self.center_button = p.addUserDebugParameter("center", 1, 0, 0)
+        self.sim_rate = p.addUserDebugParameter("sim_rate", 0, 5, 1)
+        self.incline_kp = p.addUserDebugParameter("Incline Kp", 0, 50, 30)
+        self.speed_kp = p.addUserDebugParameter("Speed Kp", 0, 1.0, 0.6)
+        self.speed_ki = p.addUserDebugParameter("Speed Ki", 0, 0.02, 0.003)
+        # reset
+        self.step_divider = 3
+        self.reset()
 
+    def init_inputs(self):
+        # init inputs
+        self.inputs = {}
+        try:
+            self.keyboard = inputs.devices.keyboards[0]
+            self.keyboard.read()
+        except PermissionError:
+            print("No keyboard permission.")
+            self.keyboard = None
+        try:
+            self.gamepad = inputs.devices.gamepads[0]
+            self.gamepad._character_file = io.open(
+                self.gamepad._character_device_path, "rb"
+            )
+            fd = self.gamepad._character_file.fileno()
+            flag = fcntl.fcntl(fd, fcntl.F_GETFL)
+            fcntl.fcntl(fd, fcntl.F_SETFL, flag | os.O_NONBLOCK)
+        except IndexError:
+            print("No gamepad found.")
+            self.gamepad = None
 
-def balance():
-    if balance.iteration == 0:
+    def reset(self):
+        p.resetSimulation()
+        p.loadURDF("plane.urdf")
+        p.setGravity(0, 0, -9.8)
+        self.steps = 0
+        self.prev_base_velocity = np.array([0, 0, 0])
+        # load robot urdf
+        self.robot = p.loadURDF("urdf/robot.urdf")
+        self.joints = {
+            p.getJointInfo(self.robot, i)[1]: i
+            for i in range(p.getNumJoints(self.robot))
+        }
+        self.legs = [self.joints[b"front_leg"], self.joints[b"back_leg"]]
+        self.wheels = [
+            self.joints[b"front_left_wheel"],
+            self.joints[b"front_right_wheel"],
+            self.joints[b"back_left_wheel"],
+            self.joints[b"back_right_wheel"],
+        ]
+        # add torque sensor to wheels
+        for wheel in self.wheels:
+            p.enableJointForceTorqueSensor(self.robot, wheel)
+        self.slab = slab_ctypes.Slab()
+        # start with legs folded
+        for i, leg in enumerate(self.legs):
+            p.resetJointState(self.robot, leg, -np.pi, 0)
+            self.slab.input.leg_positions[i] = -np.pi
+            self.slab.motors[i].input.position = -np.pi
+        """
+        # stand up orientation
         pos = (0, 0, 1.2)  # x y z
         orn = (1, 0, 0, 1)  # qx qy qz qw
-        p.resetBasePositionAndOrientation(robot, pos, orn)
-        p.resetJointState(robot, legs[0], 0, 0)
-        balance.front_leg = p.addUserDebugParameter("front_leg", -np.pi, np.pi, 0)
-        balance.back_leg = p.addUserDebugParameter("back_leg", -np.pi, np.pi, -np.pi)
+        p.resetBasePositionAndOrientation(self.robot, pos, orn)
+        """
+        # set slab config
+        self.slab.config.max_wheel_speed = 40  # rad/s
+        self.slab.config.wheel_diameter = 0.165  # m
+        self.slab.config.wheel_distance = 0.4  # m
+        self.slab.config.body_length = 0.4  # m
+        self.slab.config.leg_length = 0.35  # m
+        self.slab.config.max_leg_position = np.pi  # rad
+        self.slab.config.min_leg_position = -np.pi  # rad
+        self.slab.config.imu_axis_remap[
+            slab_ctypes.AXIS_REMAP_X
+        ] = slab_ctypes.AXIS_REMAP_NEG_X
+        self.slab.config.imu_axis_remap[
+            slab_ctypes.AXIS_REMAP_Y
+        ] = slab_ctypes.AXIS_REMAP_NEG_Y
+        self.slab.config.imu_axis_remap[
+            slab_ctypes.AXIS_REMAP_Z
+        ] = slab_ctypes.AXIS_REMAP_Z
+        self.slab.config.incline_p_gain = p.readUserDebugParameter(self.incline_kp)
+        self.slab.config.speed_p_gain = p.readUserDebugParameter(self.speed_kp)
+        self.slab.config.speed_i_gain = p.readUserDebugParameter(self.speed_ki)
+        self.slab.config.ground_rise_threshold = 0.08  # m
+        self.slab.config.ground_fall_threshold = 0.04  # m
+        self.slab.config.joystick_threshold = 10  # 0 - 255
+        # reset camera
+        p.resetDebugVisualizerCamera(5, 50, -35, (0, 0, 0))
 
-        balance.P = p.addUserDebugParameter("P", 0, 10000, 300)
-        balance.I = p.addUserDebugParameter("I", 0, 0.001, 0.0001)
-        balance.D = p.addUserDebugParameter("D", 0, 0.1, 0.05)
-        balance.init = False
+    def handle_center_button(self):
+        button_count = p.readUserDebugParameter(self.center_button)
+        if (
+            button_count > self.center_button_count
+            or self.inputs.get("BTN_SELECT", 0) == 1
+        ):
+            self.center_button_count = button_count
+            camera_info = p.getDebugVisualizerCamera()
+            pos, orn = p.getBasePositionAndOrientation(self.robot)
+            p.resetDebugVisualizerCamera(
+                camera_info[10], camera_info[8], camera_info[9], pos
+            )
 
-    balance.iteration += 1
-    if balance.iteration < 100:
-        return
+    def handle_reset_button(self):
+        button_count = p.readUserDebugParameter(self.reset_button)
+        if (
+            button_count > self.reset_button_count
+            or self.inputs.get("BTN_MODE", 0) == 1
+        ):
+            self.reset_button_count = button_count
+            self.inputs["BTN_MODE"] = 0
+            self.reset()
 
-    # p.setJointMotorControlArray(robot, legs, p.POSITION_CONTROL, targetPositions = [p.readUserDebugParameter(balance.front_leg), p.readUserDebugParameter(balance.back_leg)], positionGains = [0.01, 0.01])
-    p.setJointMotorControlArray(
-        robot,
-        [legs[1]],
-        p.POSITION_CONTROL,
-        targetPositions=[p.readUserDebugParameter(balance.back_leg)],
-        positionGains=[0.005],
-    )
+    def update_imu(self):
+        # update orientation
+        pos, orn = p.getBasePositionAndOrientation(self.robot)
+        self.slab.imu.orientation.qx = orn[0]
+        self.slab.imu.orientation.qy = orn[1]
+        self.slab.imu.orientation.qz = orn[2]
+        self.slab.imu.orientation.qw = orn[3]
+        # TODO transform to local frame
+        # update angular velocity
+        lin_vel, ang_vel = p.getBaseVelocity(self.robot)
+        self.slab.imu.angular_velocity.x = ang_vel[0]
+        self.slab.imu.angular_velocity.y = ang_vel[1]
+        self.slab.imu.angular_velocity.z = ang_vel[2]
+        # TODO update linear acceleration
+        self.slab.imu.linear_acceleration.x = lin_vel[0]
+        self.slab.imu.linear_acceleration.y = lin_vel[1]
+        self.slab.imu.linear_acceleration.z = lin_vel[2]
+        """
+        lin_vel = np.array(lin_vel)
+        lin_acc = (lin_vel - self.prev_base_velocity) / self.step_divider
+        self.prev_base_velocity = lin_vel
+        self.slab.imu.linear_acceleration.x = lin_acc[0]
+        self.slab.imu.angular_velocity.y = lin_acc[1]
+        self.slab.imu.angular_velocity.z = lin_acc[2]
+        """
 
-    # set speed based on tilt feedback to maintain balance
-    pos, orn = p.getBasePositionAndOrientation(robot)
-    tilt_feedback = np.tan(p.getEulerFromQuaternion(orn)[0] - np.pi / 2)
-    tilt_error = balance.tilt_desired - tilt_feedback
-    tilt_error_derivative = tilt_error - balance.tilt_error
-    balance.tilt_error = tilt_error
-    speed = (
-        p.readUserDebugParameter(balance.P) * tilt_error
-    )  # - p.readUserDebugParameter(balance.I) * balance.speed_integral + p.readUserDebugParameter(balance.D) * tilt_error_derivative
-    speed_error = p.readUserDebugParameter(speed_param) - speed
-    balance.speed_integral += speed_error
-    set_wheel_speed(-speed, p.readUserDebugParameter(spin_param))
-    print(tilt_feedback, speed, balance.speed_integral)
-    p.setJointMotorControlArray(
-        robot,
-        [legs[0]],
-        p.POSITION_CONTROL,
-        targetPositions=[
-            p.readUserDebugParameter(balance.I) * balance.speed_integral
-            + p.readUserDebugParameter(balance.D) * speed_error
-        ],
-        positionGains=[0.01],
-    )
-
-
-balance.iteration = 0
-balance.tilt_desired = 0
-balance.tilt_error = 0
-balance.speed_integral = 0
-
-controller = balance
-reset_button_count = 0
-
-for i in range(100000):
-    p.stepSimulation()
-    # time.sleep(1)
-    time.sleep(1.0 / 240.0)
-    controller()
-    if p.readUserDebugParameter(reset_button) > reset_button_count:
-        reset_button_count += 1
-        camera_info = p.getDebugVisualizerCamera()
-        pos, orn = p.getBasePositionAndOrientation(robot)
-        p.resetDebugVisualizerCamera(
-            camera_info[10], camera_info[8], camera_info[9], pos
+    def update_motors(self):
+        # update motor feedback
+        joint_states = p.getJointStates(self.robot, self.legs + self.wheels)
+        for i, state in enumerate(joint_states):
+            self.slab.motors[i].estimate.position = state[0]
+            self.slab.motors[i].estimate.velocity = state[1]
+        self.slab.motors[slab_ctypes.MOTOR_ID_FRONT_LEFT_WHEEL].estimate.position *= -1
+        self.slab.motors[slab_ctypes.MOTOR_ID_FRONT_LEFT_WHEEL].estimate.velocity *= -1
+        self.slab.motors[slab_ctypes.MOTOR_ID_BACK_LEFT_WHEEL].estimate.position *= -1
+        self.slab.motors[slab_ctypes.MOTOR_ID_BACK_LEFT_WHEEL].estimate.velocity *= -1
+        # update wheel speed input
+        p.setJointMotorControlArray(
+            self.robot,
+            self.wheels,
+            p.VELOCITY_CONTROL,
+            targetVelocities=[
+                -self.slab.motors[slab_ctypes.MOTOR_ID_FRONT_LEFT_WHEEL].input.velocity,
+                self.slab.motors[slab_ctypes.MOTOR_ID_FRONT_RIGHT_WHEEL].input.velocity,
+                -self.slab.motors[slab_ctypes.MOTOR_ID_BACK_LEFT_WHEEL].input.velocity,
+                self.slab.motors[slab_ctypes.MOTOR_ID_BACK_RIGHT_WHEEL].input.velocity,
+            ],
+        )
+        # update leg position input
+        p.setJointMotorControlArray(
+            self.robot,
+            self.legs,
+            p.POSITION_CONTROL,
+            targetPositions=[
+                self.slab.motors[slab_ctypes.MOTOR_ID_FRONT_LEGS].input.position,
+                self.slab.motors[slab_ctypes.MOTOR_ID_BACK_LEGS].input.position,
+            ],
+            positionGains=[0.01, 0.01],
         )
 
-p.disconnect()
+    def update_inputs(self):
+        if self.keyboard:
+            for event in self.keyboard.read():
+                self.inputs[event.code] = event.state
+        if self.gamepad:
+            events = self.gamepad._do_iter()
+            if events:
+                for event in events:
+                    self.inputs[event.code] = event.state
+        self.slab.gamepad.buttons = (
+            (self.inputs.get("BTN_SELECT", 0) << slab_ctypes.GAMEPAD_BUTTON_SELECT)
+            | (self.inputs.get("BTN_THUMBL", 0) << slab_ctypes.GAMEPAD_BUTTON_L3)
+            | (self.inputs.get("BTN_THUMBR", 0) << slab_ctypes.GAMEPAD_BUTTON_R3)
+            | (self.inputs.get("BTN_START", 0) << slab_ctypes.GAMEPAD_BUTTON_START)
+            | (self.inputs.get("BTN_DPAD_UP", 0) << slab_ctypes.GAMEPAD_BUTTON_UP)
+            | (self.inputs.get("BTN_DPAD_RIGHT", 0) << slab_ctypes.GAMEPAD_BUTTON_RIGHT)
+            | (self.inputs.get("BTN_DPAD_DOWN", 0) << slab_ctypes.GAMEPAD_BUTTON_DOWN)
+            | (self.inputs.get("BTN_DPAD_LEFT", 0) << slab_ctypes.GAMEPAD_BUTTON_LEFT)
+            | (min(self.inputs.get("ABS_Z", 0), 1) << slab_ctypes.GAMEPAD_BUTTON_L2)
+            | (min(self.inputs.get("ABS_RZ", 0), 1) << slab_ctypes.GAMEPAD_BUTTON_R2)
+            | (self.inputs.get("BTN_TL", 0) << slab_ctypes.GAMEPAD_BUTTON_L1)
+            | (self.inputs.get("BTN_TR", 0) << slab_ctypes.GAMEPAD_BUTTON_R1)
+            | (self.inputs.get("BTN_NORTH", 0) << slab_ctypes.GAMEPAD_BUTTON_TRIANGLE)
+            | (self.inputs.get("BTN_EAST", 0) << slab_ctypes.GAMEPAD_BUTTON_CIRCLE)
+            | (self.inputs.get("BTN_SOUTH", 0) << slab_ctypes.GAMEPAD_BUTTON_CROSS)
+            | (self.inputs.get("BTN_WEST", 0) << slab_ctypes.GAMEPAD_BUTTON_SQUARE)
+        )
+        self.slab.gamepad.left_stick.x = self.inputs.get("ABS_X", 128) - 128
+        self.slab.gamepad.left_stick.y = self.inputs.get("ABS_Y", 128) - 128
+        self.slab.gamepad.right_stick.x = self.inputs.get("ABS_RX", 128) - 128
+        self.slab.gamepad.right_stick.y = self.inputs.get("ABS_RY", 128) - 128
+        self.slab.gamepad.left_trigger = self.inputs.get("ABS_Z", 0)
+        self.slab.gamepad.right_trigger = self.inputs.get("ABS_RZ", 0)
+
+    def update_slab(self):
+        if self.steps % self.step_divider > 0:
+            return
+        self.slab.tick = self.steps // self.step_divider
+        self.update_imu()
+        self.update_motors()
+        libslab.slab_update(ctypes.byref(self.slab))
+        # print_ctype(self.slab.input)
+        # print_ctype(self.slab.imu)
+        # print_ctype(self.slab.gamepad)
+        print_ctype(self.slab.state)
+
+    def run(self):
+        while True:
+            p.stepSimulation()
+            self.update_inputs()
+            self.update_slab()
+            self.steps += 1
+            time.sleep(1.0 / (240.0 * p.readUserDebugParameter(self.sim_rate)))
+            self.handle_reset_button()
+            self.handle_center_button()
+        p.disconnect()
+
+
+sim = Simulation()
+sim.run()
