@@ -17,7 +17,7 @@
 #include "ps3.h"
 #include "slab_controller.h"
 
-//--------------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // constants
 
 #if 1
@@ -39,11 +39,12 @@
 #define N_MOTORS 2
 static const float MOTOR_GEAR_RATIOS[N_MOTORS] = {33, 33};
 
-//--------------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // typedefs
 
 typedef struct {
-    bool homing_required : 1;
+    bool homing_required_front : 1;
+    bool homing_required_back : 1;
     bool motor_error : 1;
     bool motor_comms_timeout : 1;
     bool imu_comms_timeout : 1;
@@ -104,7 +105,7 @@ typedef struct {
     int dir_idx;
 } App;
 
-//--------------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // helper functions
 
 Imu* imu_create();
@@ -119,6 +120,15 @@ static esp_err_t motors_error_request(uint32_t tick) {
         cmd_id = ODRIVE_CMD_GET_ENCODER_ERROR;
     }
     return odrive_send_command(axis_id, cmd_id, 0, 0);
+}
+
+static void motors_homing_complete_callback(uint8_t axis_id,
+        ODriveAxisState new_state, ODriveAxisState old_state, void* context) {
+    App* app = (App*) context;
+    if (old_state == ODRIVE_AXIS_STATE_HOMING &&
+            new_state == ODRIVE_AXIS_STATE_IDLE) {
+        app->status.error &= ~(1 << axis_id);
+    }
 }
 
 static bool motors_feedback_update(App* app) {
@@ -193,7 +203,7 @@ static int error_counter_update(ErrorCounter* counter, int error_count) {
     return counter->running;
 }
 
-//--------------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // peripheral initialization
 
 static void sdcard_init() {
@@ -246,7 +256,7 @@ static void ps3_init() {
             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 }
 
-//--------------------------------------------------------------------------------
+//------------------------------------------------------------------------------
 // tasks
 
 static void gamepad_callback(
@@ -266,6 +276,12 @@ static void gamepad_callback(
 static void control_loop(void* pvParameters) {
     App* app = (App*) pvParameters;
     AppError* app_error = (AppError*) &app->status.error;
+    for (int i = 0; i < 2; ++i) {
+        app->status.error |= 1 << i;
+        app->motors[i].state_transition_callback =
+                motors_homing_complete_callback;
+        app->motors[i].state_transition_context = app;
+    }
     static char text_buf[512];
     // Match IMU DMP output rate of 100Hz
     // ODrive encoder updates also configured to 100Hz
@@ -293,6 +309,17 @@ static void control_loop(void* pvParameters) {
         if (app->slab.gamepad.buttons) {
             GamepadMsg_to_json(&app->slab.gamepad, text_buf);
             puts(text_buf);
+        }
+        // press start button to send homing request
+        if (app->slab.gamepad.buttons & GAMEPAD_BUTTON_START) {
+            uint32_t state = ODRIVE_AXIS_STATE_HOMING;
+            for (int i = 0; i < 2; ++i) {
+                if (app->motors[i].heartbeat.axis_current_state != state &&
+                        app->status.error & (1 << i)) {
+                    odrive_send_command(i, ODRIVE_CMD_SET_REQUESTED_STATE,
+                            &state, sizeof(state));
+                }
+            }
         }
         // run control logic when error-free
         if (!app->status.error) {
