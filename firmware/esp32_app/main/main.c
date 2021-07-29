@@ -15,7 +15,7 @@
 
 #include "odrive_can.h"
 #include "ps3.h"
-#include "slab_controller.h"
+#include "slab.h"
 
 //------------------------------------------------------------------------------
 // constants
@@ -351,6 +351,8 @@ static void control_loop(void* pvParameters) {
         if (app->slab.gamepad.buttons) {
             GamepadMsg_to_json(&app->slab.gamepad, text_buf);
             puts(text_buf);
+            // force balance controller disable
+            app->slab.gamepad.buttons &= ~(1 << GAMEPAD_BUTTON_R1);
         }
         // press start button to send homing request
         if (app->slab.gamepad.buttons & GAMEPAD_BUTTON_START) {

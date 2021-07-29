@@ -8,9 +8,9 @@ import inputs, os, io, fcntl
 import json
 
 import ctypes
-from controller.build import slab_ctypes
+from libslab.build import slab_ctypes
 
-libslab = slab_ctypes._libs["libslab_controller.so"]
+libslab = slab_ctypes._libs["libslab.so"]
 
 
 def ctype_to_dict(x):

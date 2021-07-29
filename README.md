@@ -30,8 +30,8 @@ sudo apt install cmake gcc python3
 # Install pytohn dependencies:
 pip3 install -r requirements.txt
 
-#### Build controller library
-cd controller
+#### Build libslab
+cd libslab
 mkdir build
 cd build
 cmake ..

@@ -1,5 +1,5 @@
 #include "math_utils.h"
-#include "slab_controller.h"
+#include "slab.h"
 
 static void axis_remap(Vector3F* out, const Vector3F* in, const int8_t* remap) {
     for (int i = 0; i < 3; ++i) {

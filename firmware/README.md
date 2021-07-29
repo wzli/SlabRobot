@@ -5,6 +5,13 @@
 - ***First check if VDD is connected to 5V or 3.3V***.
 - remove resistors to flash LED, its the one right below the voltage selectors.
 
+### PS3 Controller
+Find the bluetooth mac address in serial console on boot:
+[image]
+Then set controller to connect to that address using util:
+
+If controller disconnects, reconnect by holding home botton to turn off and turn back on again. There is a known bug where reconnect only works on the second attempt.
+
 ### CAN Troubleshoot
 - Measure resistance across CANH and CANL to verify 60Ω of the combined termination resistors on each end.
 - Check that all devices on the bus is configured to the same baudrate.
