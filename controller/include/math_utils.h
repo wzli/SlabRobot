@@ -5,6 +5,7 @@
 
 // generic functions
 
+#define ARRAY_LEN(ARR) (sizeof(ARR) / sizeof((ARR)[0]))
 #define GET_BIT(X, I) (((X) >> (I)) & 1)
 #define ABS(X) ((X) < 0 ? -(X) : (X))
 #define SQR(X) ((X) * (X))

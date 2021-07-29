@@ -359,4 +359,5 @@ bool imu_read(MPU6050* imu, ImuMsg* imu_msg) {
     imu_msg->orientation.qw = (float) dmp_packet->qw / (1 << 30);
     return packet_count;
 }
-}
+
+}  // extern C

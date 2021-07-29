@@ -1,5 +1,5 @@
 idf_component_register(
-  SRCS main.c odrive_can.c mpu6050_dmp.cpp
+  SRCS main.c mpu6050_dmp.cpp
   INCLUDE_DIRS .
 )
 

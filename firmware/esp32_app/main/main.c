@@ -1,5 +1,3 @@
-#include <stdio.h>
-
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -7,15 +5,20 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_vfs_fat.h"
+#include "esp_bt_device.h"
 
-#include "nvs_flash.h"
 #include "driver/i2c.h"
 #include "driver/sdmmc_host.h"
 #include "driver/twai.h"
+#include "nvs_flash.h"
 #include "sdkconfig.h"
 
+#include "odrive_can.h"
 #include "ps3.h"
-#include "msg_defs.h"
+#include "slab_controller.h"
+
+//--------------------------------------------------------------------------------
+// constants
 
 #if 1
 #define PIN_SDA 13
@@ -33,6 +36,12 @@
 #define IMU_COMMS_TIMEOUT_TICKS 50
 #define GAMEPAD_COMMS_TIMEOUT_TICKS 50
 
+#define N_MOTORS 2
+static const float MOTOR_GEAR_RATIOS[N_MOTORS] = {33, 33};
+
+//--------------------------------------------------------------------------------
+// typedefs
+
 typedef struct {
     bool homing_required : 1;
     bool motor_error : 1;
@@ -41,7 +50,12 @@ typedef struct {
     bool gamepad_comms_timeout : 1;
 } AppError;
 
-// rx_overrun_count exist in espidf > 4.3
+#define TYPEDEF_ErrorCounter(X, _) \
+    X(int32_t, running, )          \
+    X(int32_t, total, )
+MXGEN(struct, ErrorCounter)
+
+// rx_overrun_count exist only in espidf > 4.3
 #define TYPEDEF_CanStatus(X, _)      \
     X(uint32_t, state, )             \
     X(uint32_t, msgs_to_tx, )        \
@@ -68,11 +82,6 @@ MXGEN(struct, CanStatus)
     X(uint32_t, xCoreID, )
 MXGEN(struct, TaskStatus)
 
-#define TYPEDEF_ErrorCounter(X, _) \
-    X(int32_t, running, )          \
-    X(int32_t, total, )
-MXGEN(struct, ErrorCounter)
-
 #define TYPEDEF_AppStatus(X, _)           \
     X(uint32_t, tick, )                   \
     _(TaskStatus, tasks, [8])             \
@@ -83,13 +92,10 @@ MXGEN(struct, ErrorCounter)
     X(uint32_t, error, )
 MXGEN(struct, AppStatus)
 
-esp_err_t odrive_receive_updates(MotorMsg* motors, uint8_t len);
-
 typedef struct Imu Imu;
-Imu* imu_create();
-bool imu_read(Imu* imu, ImuMsg* imu_msg);
 
 typedef struct {
+    ODriveAxis motors[N_MOTORS];
     Imu* imu;
     Slab slab;
     AppStatus status;
@@ -98,7 +104,80 @@ typedef struct {
     int dir_idx;
 } App;
 
-static int update_error_counter(ErrorCounter* counter, int error_count) {
+//--------------------------------------------------------------------------------
+// helper functions
+
+Imu* imu_create();
+bool imu_read(Imu* imu, ImuMsg* imu_msg);
+
+static esp_err_t motors_error_request(uint32_t tick) {
+    // send a different error request command every tick
+    uint8_t axis_id = tick % (2 * N_MOTORS);
+    uint8_t cmd_id = ODRIVE_CMD_GET_MOTOR_ERROR;
+    if (axis_id >= N_MOTORS) {
+        axis_id -= N_MOTORS;
+        cmd_id = ODRIVE_CMD_GET_ENCODER_ERROR;
+    }
+    return odrive_send_command(axis_id, cmd_id, 0, 0);
+}
+
+static bool motors_feedback_update(App* app) {
+    // clear updates flags
+    for (int i = 0; i < N_MOTORS; ++i) {
+        app->motors[i].updates = (ODriveUpdates){0};
+    }
+    // fetch updates
+    esp_err_t rx_error = odrive_receive_updates(app->motors, N_MOTORS);
+    uint8_t estimates_missed = 0;
+    for (int i = 0; i < N_MOTORS; ++i) {
+        if (app->motors[i].updates.encoder_estimates) {
+            // convert odrive interface to motor interface
+            // cycles -> radians then scale by gear ratio
+            app->slab.motors[i].estimate.position =
+                    2 * M_PI * app->motors[i].encoder_estimates.position / MOTOR_GEAR_RATIOS[i] -
+                    M_PI;
+            app->slab.motors[i].estimate.velocity =
+                    2 * M_PI * app->motors[i].encoder_estimates.velocity / MOTOR_GEAR_RATIOS[i];
+        } else {
+            estimates_missed |= 1 << i;
+        }
+        // check for errors
+        if ((app->motors[i].updates.heartbeat && app->motors[i].heartbeat.axis_error) ||
+                (app->motors[i].updates.motor_error && app->motors[i].motor_error) ||
+                (app->motors[i].updates.encoder_error && app->motors[i].encoder_error)) {
+            AppError* app_error = (AppError*) &app->status.error;
+            app_error->motor_error = true;
+        }
+    }
+    return !rx_error & !estimates_missed;
+}
+
+static FRESULT f_write_line(FIL* file, char* text_buf, int len) {
+    assert(file);
+    assert(text_buf);
+    text_buf[len] = '\n';
+    text_buf[++len] = '\0';
+    uint32_t bytes_written = 0;
+    return f_write(file, text_buf, len, &bytes_written);
+}
+
+static int dir_create() {
+    FRESULT fresult;
+    char text_buf[11];
+    int dir_idx = 0;
+    do {
+        sprintf(text_buf, "%d", dir_idx);
+        fresult = f_mkdir(text_buf);
+    } while (FR_EXIST == fresult && ++dir_idx);
+    if (fresult != FR_OK) {
+        ESP_LOGW(pcTaskGetName(NULL), "f_mkdir sdcard/%d error %d", dir_idx, fresult);
+        return -1;
+    }
+    ESP_LOGI(pcTaskGetName(NULL), "f_mkdir sdcard/%d success", dir_idx);
+    return dir_idx;
+}
+
+static int error_counter_update(ErrorCounter* counter, int error_count) {
     if (error_count) {
         counter->running += error_count;
         counter->total += error_count;
@@ -107,6 +186,9 @@ static int update_error_counter(ErrorCounter* counter, int error_count) {
     }
     return counter->running;
 }
+
+//--------------------------------------------------------------------------------
+// peripheral initialization
 
 static void sdcard_init() {
     sdmmc_host_t host = SDMMC_HOST_DEFAULT();
@@ -144,15 +226,22 @@ static void i2c_init() {
 }
 
 static void ps3_init() {
-    static const uint8_t mac[6] = {0x54, 0x54, 0x54, 0x54, 0x54, 0x54};
+#if 0
+    // static const uint8_t mac[6] = {0x54, 0x54, 0x54, 0x54, 0x54, 0x54};
+    // ps3SetBluetoothMacAddress(mac);
+#else
+    const uint8_t* mac = esp_bt_dev_get_address();
+#endif
     ESP_ERROR_CHECK(nvs_flash_init());
-    ps3SetBluetoothMacAddress(mac);
     ps3Init();
     ESP_LOGI(pcTaskGetName(NULL), "Bluetooth MAC %02x:%02x:%02x:%02x:%02x:%02x", mac[0], mac[1],
             mac[2], mac[3], mac[4], mac[5]);
 }
 
-static void ps3_gamepad_callback(void* pvParameters, ps3_t ps3_state, ps3_event_t ps3_event) {
+//--------------------------------------------------------------------------------
+// tasks
+
+static void gamepad_callback(void* pvParameters, ps3_t ps3_state, ps3_event_t ps3_event) {
     App* app = (App*) pvParameters;
     GamepadMsg* gamepad = &app->slab.gamepad;
     memcpy(&gamepad->buttons, &ps3_state.button, 2);
@@ -172,16 +261,14 @@ static void control_loop(void* pvParameters) {
     // Match IMU DMP output rate of 100Hz
     // ODrive encoder updates also configured to 100Hz
     for (TickType_t tick = xTaskGetTickCount();; vTaskDelayUntil(&tick, 1)) {
-        // printf("t%d\n", tick);
-
         // fetch motor updates
+        ESP_ERROR_CHECK_WITHOUT_ABORT(motors_error_request(tick));
         app_error->motor_comms_timeout =
                 MOTOR_COMMS_TIMEOUT_TICKS <
-                update_error_counter(&app->status.motor_comms_missed,
-                        ESP_OK != odrive_receive_updates(app->slab.motors, 2));
+                error_counter_update(&app->status.motor_comms_missed, !motors_feedback_update(app));
         // fetch imu updates
         app_error->imu_comms_timeout =
-                IMU_COMMS_TIMEOUT_TICKS < update_error_counter(&app->status.imu_comms_missed,
+                IMU_COMMS_TIMEOUT_TICKS < error_counter_update(&app->status.imu_comms_missed,
                                                   !imu_read(app->imu, &app->slab.imu));
         // detect gamepad timeout and zero input
         if ((app_error->gamepad_comms_timeout =
@@ -195,21 +282,12 @@ static void control_loop(void* pvParameters) {
             GamepadMsg_to_json(&app->slab.gamepad, text_buf);
             puts(text_buf);
         }
-        // disable control loop during error state
-        if (app->status.error) {
-            continue;
+        // run control logic when error-free
+        if (!app->status.error) {
+            app->slab.tick = tick;
+            slab_update(&app->slab);
         }
-        // control code below here
     }
-}
-
-static FRESULT f_write_line(FIL* file, char* text_buf, int len) {
-    assert(file);
-    assert(text_buf);
-    text_buf[len] = '\n';
-    text_buf[++len] = '\0';
-    uint32_t bytes_written = 0;
-    return f_write(file, text_buf, len, &bytes_written);
 }
 
 static void monitor_loop(void* pvParameters) {
@@ -220,7 +298,6 @@ static void monitor_loop(void* pvParameters) {
     App* app = (App*) pvParameters;
     const char* TAG = pcTaskGetName(NULL);
     FIL* csv_log = NULL;
-#if 1
     // create new csv log
     if (app->dir_idx > -1) {
         csv_log = malloc(sizeof(FIL));
@@ -238,7 +315,6 @@ static void monitor_loop(void* pvParameters) {
             csv_log = NULL;
         }
     }
-#endif
 
     for (app->status.tick = xTaskGetTickCount();; vTaskDelayUntil(&app->status.tick, 300)) {
 #if 0
@@ -266,22 +342,6 @@ static void monitor_loop(void* pvParameters) {
     }
 }
 
-static int dir_create() {
-    FRESULT fresult;
-    char text_buf[11];
-    int dir_idx = 0;
-    do {
-        sprintf(text_buf, "%d", dir_idx);
-        fresult = f_mkdir(text_buf);
-    } while (FR_EXIST == fresult && ++dir_idx);
-    if (fresult != FR_OK) {
-        ESP_LOGW(pcTaskGetName(NULL), "f_mkdir sdcard/%d error %d", dir_idx, fresult);
-        return -1;
-    }
-    ESP_LOGI(pcTaskGetName(NULL), "f_mkdir sdcard/%d success", dir_idx);
-    return dir_idx;
-}
-
 void app_main(void) {
     sdcard_init();
     can_init();
@@ -291,7 +351,7 @@ void app_main(void) {
     static App app;
     app.dir_idx = dir_create();
     app.imu = imu_create();
-    ps3SetEventObjectCallback(&app, ps3_gamepad_callback);
+    ps3SetEventObjectCallback(&app, gamepad_callback);
 
     xTaskCreatePinnedToCore(monitor_loop, "monitor_loop", 8 * 2048, &app, 1, &app.monitor_task, 0);
     xTaskCreatePinnedToCore(control_loop, "control_loop", 8 * 2048, &app, 9, &app.control_task, 1);
