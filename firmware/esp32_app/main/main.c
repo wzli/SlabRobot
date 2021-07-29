@@ -56,6 +56,7 @@ typedef struct {
     X(int32_t, total, )
 MXGEN(struct, ErrorCounter)
 
+// keep the same layout as twai_status_info_t
 // rx_overrun_count exist only in espidf > 4.3
 #define TYPEDEF_CanStatus(X, _)      \
     X(uint32_t, state, )             \
@@ -70,6 +71,7 @@ MXGEN(struct, ErrorCounter)
     X(uint32_t, bus_error_count, )
 MXGEN(struct, CanStatus)
 
+// keep the same layout as TaskStatus_t
 #define TYPEDEF_TaskStatus(X, _)        \
     _(void*, xHandle, )                 \
     _(char*, pcTaskName, )              \
@@ -83,26 +85,44 @@ MXGEN(struct, CanStatus)
     X(uint32_t, xCoreID, )
 MXGEN(struct, TaskStatus)
 
-#define TYPEDEF_AppStatus(X, _)           \
-    X(uint32_t, tick, )                   \
-    _(TaskStatus, tasks, [8])             \
-    X(CanStatus, can, )                   \
-    X(ErrorCounter, motor_comms_missed, ) \
-    X(ErrorCounter, imu_comms_missed, )   \
-    X(uint32_t, gamepad_timestamp, )      \
+// keep the same layout as ODriveAxis
+#define TYPEDEF_ODriveStatus(X, _)     \
+    X(uint64_t, motor_error, )         \
+    X(uint32_t, encoder_error, )       \
+    _(uint32_t, sensorless_error, )    \
+    X(uint32_t, axis_error, )          \
+    X(uint32_t, axis_state, )          \
+    _(int32_t, encoder_shadow_count, ) \
+    _(int32_t, encoder_count_cpr, )    \
+    X(float, encoder_position, )       \
+    X(float, encoder_velocity, )
+MXGEN(struct, ODriveStatus)
+
+#define TYPEDEF_MotorStatus(X, _) \
+    X(ODriveStatus, status, )     \
+    _(ODriveAxis, odrive, )
+MXGEN(union, MotorStatus)
+
+#define TYPEDEF_AppStatus(X, _)                     \
+    X(uint32_t, tick, )                             \
+    X(CanStatus, can, )                             \
+    _(TaskStatus, tasks, [8])                       \
+    X(MotorStatus, motors, [N_MOTORS])              \
+    X(ErrorCounter, motor_comms_missed, [N_MOTORS]) \
+    X(ErrorCounter, imu_comms_missed, )             \
+    X(uint32_t, gamepad_timestamp, )                \
     X(uint32_t, error, )
 MXGEN(struct, AppStatus)
 
 typedef struct Imu Imu;
 
 typedef struct {
-    ODriveAxis motors[N_MOTORS];
-    Imu* imu;
-    Slab slab;
-    AppStatus status;
     TaskHandle_t control_task;
     TaskHandle_t monitor_task;
     int dir_idx;
+    Imu* imu;
+    AppStatus status;
+    Slab slab;
 } App;
 
 //------------------------------------------------------------------------------
@@ -110,6 +130,16 @@ typedef struct {
 
 Imu* imu_create();
 bool imu_read(Imu* imu, ImuMsg* imu_msg);
+
+static int error_counter_update(ErrorCounter* counter, int error_count) {
+    if (error_count) {
+        counter->running += error_count;
+        counter->total += error_count;
+    } else {
+        counter->running = 0;
+    }
+    return counter->running;
+}
 
 static esp_err_t motors_error_request(uint32_t tick) {
     // send a different error request command every tick
@@ -122,49 +152,74 @@ static esp_err_t motors_error_request(uint32_t tick) {
     return odrive_send_command(axis_id, cmd_id, 0, 0);
 }
 
-static void motors_homing_complete_callback(uint8_t axis_id,
-        ODriveAxisState new_state, ODriveAxisState old_state, void* context) {
-    App* app = (App*) context;
-    if (old_state == ODRIVE_AXIS_STATE_HOMING &&
-            new_state == ODRIVE_AXIS_STATE_IDLE) {
-        app->status.error &= ~(1 << axis_id);
-    }
-}
-
-static bool motors_feedback_update(App* app) {
+static esp_err_t motors_feedback_update(App* app) {
+    AppError* app_error = (AppError*) &app->status.error;
     // clear updates flags
+    ODriveAxis* odrives = (ODriveAxis*) app->status.motors;
     for (int i = 0; i < N_MOTORS; ++i) {
-        app->motors[i].updates = (ODriveUpdates){0};
+        odrives[i].updates = (ODriveUpdates){0};
     }
     // fetch updates
-    esp_err_t rx_error = odrive_receive_updates(app->motors, N_MOTORS);
-    uint8_t estimates_missed = 0;
+    esp_err_t rx_error = odrive_receive_updates(odrives, N_MOTORS);
+    app_error->motor_comms_timeout = false;
     for (int i = 0; i < N_MOTORS; ++i) {
-        if (app->motors[i].updates.encoder_estimates) {
-            // convert odrive interface to motor interface
-            // cycles -> radians then scale by gear ratio
+        // check for motor comms timeout
+        const uint8_t* updates = (uint8_t*) &odrives[i].updates;
+        if (MOTOR_COMMS_TIMEOUT_TICKS <
+                error_counter_update(
+                        &app->status.motor_comms_missed[i], *updates == 0)) {
+            app_error->motor_comms_timeout = true;
+        }
+        // check for motor errors
+        if ((odrives[i].updates.heartbeat && odrives[i].heartbeat.axis_error) ||
+                (odrives[i].updates.motor_error && odrives[i].motor_error) ||
+                (odrives[i].updates.encoder_error &&
+                        odrives[i].encoder_error)) {
+            app_error->motor_error = true;
+        }
+        // convert odrive interface to motor interface
+        // cycles -> radians then scale by gear ratio
+        if (odrives[i].updates.encoder_estimates) {
             app->slab.motors[i].estimate.position =
-                    2 * M_PI * app->motors[i].encoder_estimates.position /
+                    2 * M_PI * odrives[i].encoder_estimates.position /
                             MOTOR_GEAR_RATIOS[i] -
                     M_PI;
             app->slab.motors[i].estimate.velocity =
-                    2 * M_PI * app->motors[i].encoder_estimates.velocity /
+                    2 * M_PI * odrives[i].encoder_estimates.velocity /
                     MOTOR_GEAR_RATIOS[i];
-        } else {
-            estimates_missed |= 1 << i;
-        }
-        // check for errors
-        if ((app->motors[i].updates.heartbeat &&
-                    app->motors[i].heartbeat.axis_error) ||
-                (app->motors[i].updates.motor_error &&
-                        app->motors[i].motor_error) ||
-                (app->motors[i].updates.encoder_error &&
-                        app->motors[i].encoder_error)) {
-            AppError* app_error = (AppError*) &app->status.error;
-            app_error->motor_error = true;
         }
     }
-    return !rx_error & !estimates_missed;
+    return rx_error;
+}
+
+static void motors_homing_complete_callback(uint8_t axis_id,
+        ODriveAxisState new_state, ODriveAxisState old_state, void* app) {
+    if (old_state == ODRIVE_AXIS_STATE_HOMING &&
+            new_state == ODRIVE_AXIS_STATE_IDLE) {
+        ((App*) app)->status.error &= ~(1 << axis_id);
+    }
+}
+
+static void motors_input_update(const App* app) {
+    for (int i = 0; i < N_MOTORS; ++i) {
+        // request running state if not already
+        static const uint32_t state = ODRIVE_AXIS_STATE_CLOSED_LOOP_CONTROL;
+        if (app->status.motors[i].status.axis_state != state) {
+            odrive_send_command(
+                    i, ODRIVE_CMD_SET_REQUESTED_STATE, &state, sizeof(state));
+        }
+        // send different motor commands depending on desired control mode
+        switch (app->slab.motors[i].input.control_mode) {
+            case MOTOR_CONTROL_MODE_POSITION:
+                break;
+            case MOTOR_CONTROL_MODE_VELOCITY:
+                break;
+            case MOTOR_CONTROL_MODE_TORQUE:
+                break;
+            default:
+                assert(0 && "motor control mode not implemented");
+        }
+    }
 }
 
 static FRESULT f_write_line(FIL* file, char* text_buf, int len) {
@@ -191,16 +246,6 @@ static int dir_create() {
     }
     ESP_LOGI(pcTaskGetName(NULL), "f_mkdir sdcard/%d success", dir_idx);
     return dir_idx;
-}
-
-static int error_counter_update(ErrorCounter* counter, int error_count) {
-    if (error_count) {
-        counter->running += error_count;
-        counter->total += error_count;
-    } else {
-        counter->running = 0;
-    }
-    return counter->running;
 }
 
 //------------------------------------------------------------------------------
@@ -278,9 +323,9 @@ static void control_loop(void* pvParameters) {
     AppError* app_error = (AppError*) &app->status.error;
     for (int i = 0; i < 2; ++i) {
         app->status.error |= 1 << i;
-        app->motors[i].state_transition_callback =
+        app->status.motors[i].odrive.state_transition_callback =
                 motors_homing_complete_callback;
-        app->motors[i].state_transition_context = app;
+        app->status.motors[i].odrive.state_transition_context = app;
     }
     static char text_buf[512];
     // Match IMU DMP output rate of 100Hz
@@ -288,10 +333,7 @@ static void control_loop(void* pvParameters) {
     for (TickType_t tick = xTaskGetTickCount();; vTaskDelayUntil(&tick, 1)) {
         // fetch motor updates
         ESP_ERROR_CHECK_WITHOUT_ABORT(motors_error_request(tick));
-        app_error->motor_comms_timeout =
-                MOTOR_COMMS_TIMEOUT_TICKS <
-                error_counter_update(&app->status.motor_comms_missed,
-                        !motors_feedback_update(app));
+        ESP_ERROR_CHECK_WITHOUT_ABORT(motors_feedback_update(app));
         // fetch imu updates
         app_error->imu_comms_timeout =
                 IMU_COMMS_TIMEOUT_TICKS <
@@ -312,9 +354,9 @@ static void control_loop(void* pvParameters) {
         }
         // press start button to send homing request
         if (app->slab.gamepad.buttons & GAMEPAD_BUTTON_START) {
-            uint32_t state = ODRIVE_AXIS_STATE_HOMING;
+            static const uint32_t state = ODRIVE_AXIS_STATE_HOMING;
             for (int i = 0; i < 2; ++i) {
-                if (app->motors[i].heartbeat.axis_current_state != state &&
+                if (app->status.motors[i].status.axis_state != state &&
                         app->status.error & (1 << i)) {
                     odrive_send_command(i, ODRIVE_CMD_SET_REQUESTED_STATE,
                             &state, sizeof(state));
@@ -325,6 +367,7 @@ static void control_loop(void* pvParameters) {
         if (!app->status.error) {
             app->slab.tick = tick;
             slab_update(&app->slab);
+            motors_input_update(app);
         }
     }
 }
