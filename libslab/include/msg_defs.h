@@ -58,6 +58,7 @@ MXGEN(struct, MotorMsg)
 
 ////////////////////////////////////////////////////////////////////////////////
 // Gamepad
+
 typedef enum {
     GAMEPAD_BUTTON_SELECT,
     GAMEPAD_BUTTON_L3,

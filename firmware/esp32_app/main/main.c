@@ -155,7 +155,7 @@ static esp_err_t motors_error_request(uint32_t tick) {
 static esp_err_t motors_feedback_update(App* app) {
     AppError* app_error = (AppError*) &app->status.error;
     // clear updates flags
-    ODriveAxis* odrives = (ODriveAxis*) app->status.motors;
+    ODriveAxis* odrives = &app->status.motors->odrive;
     for (int i = 0; i < N_MOTORS; ++i) {
         odrives[i].updates = (ODriveUpdates){0};
     }
@@ -202,20 +202,36 @@ static void motors_homing_complete_callback(uint8_t axis_id,
 
 static void motors_input_update(const App* app) {
     for (int i = 0; i < N_MOTORS; ++i) {
+        const ODriveStatus* odrive = &app->status.motors[i].status;
+        const MotorMsg* motor = &app->slab.motors[i];
         // request running state if not already
         static const uint32_t state = ODRIVE_AXIS_STATE_CLOSED_LOOP_CONTROL;
-        if (app->status.motors[i].status.axis_state != state) {
+        if (odrive->axis_state != state) {
             odrive_send_command(
                     i, ODRIVE_CMD_SET_REQUESTED_STATE, &state, sizeof(state));
         }
         // send different motor commands depending on desired control mode
-        switch (app->slab.motors[i].input.control_mode) {
-            case MOTOR_CONTROL_MODE_POSITION:
+        // assume that the odrive is preconfigured to the correct mode
+        switch (motor->input.control_mode) {
+            case MOTOR_CONTROL_MODE_POSITION: {
+                const ODriveInputPosition input_pos = {
+                        (motor->input.position + M_PI) * MOTOR_GEAR_RATIOS[i] /
+                                2 * M_PI,
+                        1000 * motor->input.velocity * MOTOR_GEAR_RATIOS[i] /
+                                2 * M_PI,
+                        1000 * motor->input.torque / MOTOR_GEAR_RATIOS[i]};
+                ESP_ERROR_CHECK(odrive_send_command(i, ODRIVE_CMD_SET_INPUT_POS,
+                        &input_pos, sizeof(input_pos)));
                 break;
-            case MOTOR_CONTROL_MODE_VELOCITY:
+            }
+            case MOTOR_CONTROL_MODE_VELOCITY: {
+                const ODriveInputVelocity input_vel = {
+                        motor->input.velocity * MOTOR_GEAR_RATIOS[i] / 2 * M_PI,
+                        motor->input.torque / MOTOR_GEAR_RATIOS[i]};
+                ESP_ERROR_CHECK(odrive_send_command(i, ODRIVE_CMD_SET_INPUT_VEL,
+                        &input_vel, sizeof(input_vel)));
                 break;
-            case MOTOR_CONTROL_MODE_TORQUE:
-                break;
+            }
             default:
                 assert(0 && "motor control mode not implemented");
         }
@@ -332,8 +348,8 @@ static void control_loop(void* pvParameters) {
     // ODrive encoder updates also configured to 100Hz
     for (TickType_t tick = xTaskGetTickCount();; vTaskDelayUntil(&tick, 1)) {
         // fetch motor updates
-        ESP_ERROR_CHECK_WITHOUT_ABORT(motors_error_request(tick));
-        ESP_ERROR_CHECK_WITHOUT_ABORT(motors_feedback_update(app));
+        ESP_ERROR_CHECK(motors_error_request(tick));
+        ESP_ERROR_CHECK(motors_feedback_update(app));
         // fetch imu updates
         app_error->imu_comms_timeout =
                 IMU_COMMS_TIMEOUT_TICKS <
