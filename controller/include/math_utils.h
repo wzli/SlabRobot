@@ -54,8 +54,10 @@
 #define VEC_SUM(OUT, IN, LEN) \
     VEC_ITERATE(((OUT) = (IN)[0], 1), LEN) { (OUT) += (IN)[VEC_I]; }
 
-#define VEC_DOT(OUT, A, B, LEN, STRIDE) \
-    VEC_ITERATE(((OUT) = 0), LEN) { (OUT) += (A)[VEC_I] * (B)[VEC_I * (STRIDE)]; }
+#define VEC_DOT(OUT, A, B, LEN, STRIDE)              \
+    VEC_ITERATE(((OUT) = 0), LEN) {                  \
+        (OUT) += (A)[VEC_I] * (B)[VEC_I * (STRIDE)]; \
+    }
 
 #define VEC3_DOT(A, B) ((A)[0] * (B)[0] + (A)[1] * (B)[1] + (A)[2] * (B)[2])
 
@@ -107,7 +109,8 @@ static inline float vec_average(const float* v, int len) {
 #define MAT_TRANSPOSE(MAT, DIM)                                     \
     for (int trans_row = 1; trans_row < (DIM); ++trans_row)         \
         for (int trans_col = 0; trans_col < trans_row; ++trans_col) \
-    XOR_SWAP((MAT)[trans_col + (DIM) *trans_row], (MAT)[trans_row + (DIM) *trans_col])
+    XOR_SWAP((MAT)[trans_col + (DIM) *trans_row],                   \
+            (MAT)[trans_row + (DIM) *trans_col])
 
 static inline float rot_to_yaw(const float* rot) {
     return atan2f(rot[3], rot[0]);
@@ -123,20 +126,24 @@ static inline float rot_to_roll(const float* rot) {
 
 // quaternion functions [w, x, y, z]
 
-#define QUAT_MULTIPLY(OUT, A, B)                                                         \
-    do {                                                                                 \
-        (OUT)[0] = (A)[0] * (B)[0] - VEC3_DOT((A) + 1, (B) + 1);                         \
-        VEC3_CROSS((OUT) + 1, (A) + 1, (B) + 1);                                         \
-        VEC_ITERATE(1, 4) { (OUT)[VEC_I] += (A)[0] * (B)[VEC_I] + (B)[0] * (A)[VEC_I]; } \
+#define QUAT_MULTIPLY(OUT, A, B)                                       \
+    do {                                                               \
+        (OUT)[0] = (A)[0] * (B)[0] - VEC3_DOT((A) + 1, (B) + 1);       \
+        VEC3_CROSS((OUT) + 1, (A) + 1, (B) + 1);                       \
+        VEC_ITERATE(1, 4) {                                            \
+            (OUT)[VEC_I] += (A)[0] * (B)[VEC_I] + (B)[0] * (A)[VEC_I]; \
+        }                                                              \
     } while (0)
 
-#define QUAT_TRANSFORM(OUT, Q, V)                                                                \
-    do {                                                                                         \
-        VEC3_CROSS(OUT, (Q) + 1, V);                                                             \
-        VEC_ITERATE(0, 3) {                                                                      \
-            (OUT)[VEC_I] = 2 * ((Q)[0] * (OUT)[VEC_I] + VEC3_DOT((Q) + 1, V) * (Q)[VEC_I + 1]) + \
-                           ((2 * SQR((Q)[0]) - 1) * (V)[VEC_I]);                                 \
-        }                                                                                        \
+#define QUAT_TRANSFORM(OUT, Q, V)                                        \
+    do {                                                                 \
+        VEC3_CROSS(OUT, (Q) + 1, V);                                     \
+        VEC_ITERATE(0, 3) {                                              \
+            (OUT)[VEC_I] =                                               \
+                    2 * ((Q)[0] * (OUT)[VEC_I] +                         \
+                                VEC3_DOT((Q) + 1, V) * (Q)[VEC_I + 1]) + \
+                    ((2 * SQR((Q)[0]) - 1) * (V)[VEC_I]);                \
+        }                                                                \
     } while (0)
 
 #define QUAT_TO_ROTATION_MATRIX(R, Q)                     \
@@ -152,13 +159,15 @@ static inline float rot_to_roll(const float* rot) {
         (R)[8] = 1 - 2 * (SQR((Q)[1]) + SQR((Q)[2]));     \
     } while (0)
 
-#define QUAT_CONJUGATE(OUT, IN) VEC_ITERATE(((OUT)[0] = (IN)[0], 1), 4)(OUT)[VEC_I] = -(IN)[VEC_I]
+#define QUAT_CONJUGATE(OUT, IN) \
+    VEC_ITERATE(((OUT)[0] = (IN)[0], 1), 4)(OUT)[VEC_I] = -(IN)[VEC_I]
 
 static inline void quat_normalize(float* q) {
     vec_normalize(q, q, 4);
 }
 
-static inline void quat_from_angle_axis(float* q, float angle, const float* axis) {
+static inline void quat_from_angle_axis(
+        float* q, float angle, const float* axis) {
     float sin_half = sinf(angle / 2);
     vec_normalize(q + 1, axis, 3);
     VEC_MULTIPLY(q + 1, q + 1, sin_half, 3);

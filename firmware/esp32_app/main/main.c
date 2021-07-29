@@ -134,17 +134,22 @@ static bool motors_feedback_update(App* app) {
             // convert odrive interface to motor interface
             // cycles -> radians then scale by gear ratio
             app->slab.motors[i].estimate.position =
-                    2 * M_PI * app->motors[i].encoder_estimates.position / MOTOR_GEAR_RATIOS[i] -
+                    2 * M_PI * app->motors[i].encoder_estimates.position /
+                            MOTOR_GEAR_RATIOS[i] -
                     M_PI;
             app->slab.motors[i].estimate.velocity =
-                    2 * M_PI * app->motors[i].encoder_estimates.velocity / MOTOR_GEAR_RATIOS[i];
+                    2 * M_PI * app->motors[i].encoder_estimates.velocity /
+                    MOTOR_GEAR_RATIOS[i];
         } else {
             estimates_missed |= 1 << i;
         }
         // check for errors
-        if ((app->motors[i].updates.heartbeat && app->motors[i].heartbeat.axis_error) ||
-                (app->motors[i].updates.motor_error && app->motors[i].motor_error) ||
-                (app->motors[i].updates.encoder_error && app->motors[i].encoder_error)) {
+        if ((app->motors[i].updates.heartbeat &&
+                    app->motors[i].heartbeat.axis_error) ||
+                (app->motors[i].updates.motor_error &&
+                        app->motors[i].motor_error) ||
+                (app->motors[i].updates.encoder_error &&
+                        app->motors[i].encoder_error)) {
             AppError* app_error = (AppError*) &app->status.error;
             app_error->motor_error = true;
         }
@@ -170,7 +175,8 @@ static int dir_create() {
         fresult = f_mkdir(text_buf);
     } while (FR_EXIST == fresult && ++dir_idx);
     if (fresult != FR_OK) {
-        ESP_LOGW(pcTaskGetName(NULL), "f_mkdir sdcard/%d error %d", dir_idx, fresult);
+        ESP_LOGW(pcTaskGetName(NULL), "f_mkdir sdcard/%d error %d", dir_idx,
+                fresult);
         return -1;
     }
     ESP_LOGI(pcTaskGetName(NULL), "f_mkdir sdcard/%d success", dir_idx);
@@ -197,9 +203,11 @@ static void sdcard_init() {
     slot_config.width = 1;  // configure 1-line mode
     sdmmc_card_t* card;
     esp_vfs_fat_sdmmc_mount_config_t mount_config = {
-            .format_if_mount_failed = false, .max_files = 5, .allocation_unit_size = 16 * 1024};
-    ESP_ERROR_CHECK_WITHOUT_ABORT(
-            esp_vfs_fat_sdmmc_mount("/sdcard", &host, &slot_config, &mount_config, &card));
+            .format_if_mount_failed = false,
+            .max_files = 5,
+            .allocation_unit_size = 16 * 1024};
+    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_vfs_fat_sdmmc_mount(
+            "/sdcard", &host, &slot_config, &mount_config, &card));
 }
 
 static void can_init() {
@@ -234,14 +242,15 @@ static void ps3_init() {
 #endif
     ESP_ERROR_CHECK(nvs_flash_init());
     ps3Init();
-    ESP_LOGI(pcTaskGetName(NULL), "Bluetooth MAC %02x:%02x:%02x:%02x:%02x:%02x", mac[0], mac[1],
-            mac[2], mac[3], mac[4], mac[5]);
+    ESP_LOGI(pcTaskGetName(NULL), "Bluetooth MAC %02x:%02x:%02x:%02x:%02x:%02x",
+            mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 }
 
 //--------------------------------------------------------------------------------
 // tasks
 
-static void gamepad_callback(void* pvParameters, ps3_t ps3_state, ps3_event_t ps3_event) {
+static void gamepad_callback(
+        void* pvParameters, ps3_t ps3_state, ps3_event_t ps3_event) {
     App* app = (App*) pvParameters;
     GamepadMsg* gamepad = &app->slab.gamepad;
     memcpy(&gamepad->buttons, &ps3_state.button, 2);
@@ -265,14 +274,17 @@ static void control_loop(void* pvParameters) {
         ESP_ERROR_CHECK_WITHOUT_ABORT(motors_error_request(tick));
         app_error->motor_comms_timeout =
                 MOTOR_COMMS_TIMEOUT_TICKS <
-                error_counter_update(&app->status.motor_comms_missed, !motors_feedback_update(app));
+                error_counter_update(&app->status.motor_comms_missed,
+                        !motors_feedback_update(app));
         // fetch imu updates
         app_error->imu_comms_timeout =
-                IMU_COMMS_TIMEOUT_TICKS < error_counter_update(&app->status.imu_comms_missed,
-                                                  !imu_read(app->imu, &app->slab.imu));
+                IMU_COMMS_TIMEOUT_TICKS <
+                error_counter_update(&app->status.imu_comms_missed,
+                        !imu_read(app->imu, &app->slab.imu));
         // detect gamepad timeout and zero input
         if ((app_error->gamepad_comms_timeout =
-                            tick > GAMEPAD_COMMS_TIMEOUT_TICKS + app->status.gamepad_timestamp)) {
+                            tick > GAMEPAD_COMMS_TIMEOUT_TICKS +
+                                           app->status.gamepad_timestamp)) {
             app->slab.gamepad = (GamepadMsg){0};
         }
         // ImuMsg_to_json(&app->imu_msg, app->json);
@@ -291,7 +303,8 @@ static void control_loop(void* pvParameters) {
 }
 
 static void monitor_loop(void* pvParameters) {
-    TRY_STATIC_ASSERT(sizeof(CanStatus) == sizeof(twai_status_info_t), "type mismatch");
+    TRY_STATIC_ASSERT(
+            sizeof(CanStatus) == sizeof(twai_status_info_t), "type mismatch");
     static char text_buf[2048];
 
     assert(pvParameters);
@@ -316,7 +329,8 @@ static void monitor_loop(void* pvParameters) {
         }
     }
 
-    for (app->status.tick = xTaskGetTickCount();; vTaskDelayUntil(&app->status.tick, 300)) {
+    for (app->status.tick = xTaskGetTickCount();;
+            vTaskDelayUntil(&app->status.tick, 300)) {
 #if 0
         puts("Task Name       State   Pri     Stack   Num     CoreId");
         vTaskList(text_buf);
@@ -326,7 +340,8 @@ static void monitor_loop(void* pvParameters) {
         vTaskGetRunTimeStats(text_buf);
         puts(text_buf);
 #endif
-        ESP_ERROR_CHECK(twai_get_status_info((twai_status_info_t*) &app->status.can));
+        ESP_ERROR_CHECK(
+                twai_get_status_info((twai_status_info_t*) &app->status.can));
         uxTaskGetSystemState((TaskStatus_t*) app->status.tasks,
                 sizeof(app->status.tasks) / sizeof(app->status.tasks[0]), NULL);
 
@@ -353,6 +368,8 @@ void app_main(void) {
     app.imu = imu_create();
     ps3SetEventObjectCallback(&app, gamepad_callback);
 
-    xTaskCreatePinnedToCore(monitor_loop, "monitor_loop", 8 * 2048, &app, 1, &app.monitor_task, 0);
-    xTaskCreatePinnedToCore(control_loop, "control_loop", 8 * 2048, &app, 9, &app.control_task, 1);
+    xTaskCreatePinnedToCore(monitor_loop, "monitor_loop", 8 * 2048, &app, 1,
+            &app.monitor_task, 0);
+    xTaskCreatePinnedToCore(control_loop, "control_loop", 8 * 2048, &app, 9,
+            &app.control_task, 1);
 }

@@ -1,7 +1,9 @@
 #include "I2Cdev.h"
 
-// MotionApps 2.0 DMP implementation, built using the MPU-6050EVB evaluation board
-#define MPU6050_INCLUDE_DMP_MOTIONAPPS20  // same definitions Should work with V6.12
+// MotionApps 2.0 DMP implementation, built using the MPU-6050EVB evaluation
+// board
+#define MPU6050_INCLUDE_DMP_MOTIONAPPS20  // same definitions Should work with
+                                          // V6.12
 #include "MPU6050.h"
 
 #define delay(ms) vTaskDelay(ms / portTICK_PERIOD_MS);
@@ -21,8 +23,9 @@
  | [QUAT W][      ][QUAT X][      ][QUAT Y][      ][QUAT Z][      ] |
  |   0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15  |
  |                                                                  |
- | [ACC X ][ACC Y ][ACC Z ][GYRO X][GYRO Y][GYRO Z]					|
- |  16  17  18  19  20  21  22  23  24  25  26  27					|
+ | [ACC X ][ACC Y ][ACC Z ][GYRO X][GYRO Y][GYRO Z]
+ | |  16  17  18  19  20  21  22  23  24  25  26  27
+ |
  * ================================================================ */
 
 struct DmpPacket {
@@ -345,9 +348,12 @@ bool imu_read(MPU6050* imu, ImuMsg* imu_msg) {
     // convert to float message (in reverse order for inplace conversion)
     const DmpPacket* dmp_packet = (const DmpPacket*) imu_msg;
     // full +-8192 range is +-2000deg/s, scale to (rad/s)
-    imu_msg->angular_velocity.z = (float) dmp_packet->gz * 100 * M_PI / (18 << 14);
-    imu_msg->angular_velocity.y = (float) dmp_packet->gy * 100 * M_PI / (18 << 14);
-    imu_msg->angular_velocity.x = (float) dmp_packet->gx * 100 * M_PI / (18 << 14);
+    imu_msg->angular_velocity.z =
+            (float) dmp_packet->gz * 100 * M_PI / (18 << 14);
+    imu_msg->angular_velocity.y =
+            (float) dmp_packet->gy * 100 * M_PI / (18 << 14);
+    imu_msg->angular_velocity.x =
+            (float) dmp_packet->gx * 100 * M_PI / (18 << 14);
     // full +-8192 range is +-2g, scale to (g)
     imu_msg->linear_acceleration.z = (float) dmp_packet->az / (1 << 14);
     imu_msg->linear_acceleration.y = (float) dmp_packet->ay / (1 << 14);
