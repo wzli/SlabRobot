@@ -166,37 +166,31 @@ static esp_err_t motors_feedback_update(App* app) {
         // check for motor comms timeout
         const uint8_t* updates = (uint8_t*) &odrives[i].updates;
         if (MOTOR_COMMS_TIMEOUT_TICKS <
-                error_counter_update(
-                        &app->status.motor_comms_missed[i], *updates == 0)) {
+                error_counter_update(&app->status.motor_comms_missed[i], *updates == 0)) {
             app_error->motor_comms_timeout = true;
         }
         // check for motor errors
         if ((odrives[i].updates.heartbeat && odrives[i].heartbeat.axis_error) ||
                 (odrives[i].updates.motor_error && odrives[i].motor_error) ||
-                (odrives[i].updates.encoder_error &&
-                        odrives[i].encoder_error)) {
+                (odrives[i].updates.encoder_error && odrives[i].encoder_error)) {
             app_error->motor_error = true;
         }
         // convert odrive interface to motor interface
         // cycles -> radians then scale by gear ratio
         if (odrives[i].updates.encoder_estimates) {
             app->slab.motors[i].estimate.position =
-                    2 * M_PI * odrives[i].encoder_estimates.position /
-                            MOTOR_GEAR_RATIOS[i] -
-                    M_PI;
+                    2 * M_PI * odrives[i].encoder_estimates.position / MOTOR_GEAR_RATIOS[i] - M_PI;
             app->slab.motors[i].estimate.velocity =
-                    2 * M_PI * odrives[i].encoder_estimates.velocity /
-                    MOTOR_GEAR_RATIOS[i];
+                    2 * M_PI * odrives[i].encoder_estimates.velocity / MOTOR_GEAR_RATIOS[i];
         }
     }
     return rx_error;
 }
 
-static void motors_homing_complete_callback(uint8_t axis_id,
-        ODriveAxisState new_state, ODriveAxisState old_state, void* app) {
+static void motors_homing_complete_callback(
+        uint8_t axis_id, ODriveAxisState new_state, ODriveAxisState old_state, void* app) {
     assert(axis_id < 2);
-    if (old_state == ODRIVE_AXIS_STATE_HOMING &&
-            new_state == ODRIVE_AXIS_STATE_IDLE) {
+    if (old_state == ODRIVE_AXIS_STATE_HOMING && new_state == ODRIVE_AXIS_STATE_IDLE) {
         ((App*) app)->status.error &= ~(1 << axis_id);
     }
 }
@@ -208,29 +202,26 @@ static void motors_input_update(const App* app) {
         // request running state if not already
         static const uint32_t state = ODRIVE_AXIS_STATE_CLOSED_LOOP_CONTROL;
         if (odrive->axis_state != state) {
-            odrive_send_command(
-                    i, ODRIVE_CMD_SET_REQUESTED_STATE, &state, sizeof(state));
+            odrive_send_command(i, ODRIVE_CMD_SET_REQUESTED_STATE, &state, sizeof(state));
         }
         // send different motor commands depending on desired control mode
         // assume that the odrive is preconfigured to the correct mode
         switch (motor->input.control_mode) {
             case MOTOR_CONTROL_MODE_POSITION: {
                 const ODriveInputPosition input_pos = {
-                        (motor->input.position + M_PI) * MOTOR_GEAR_RATIOS[i] /
-                                2 * M_PI,
-                        1000 * motor->input.velocity * MOTOR_GEAR_RATIOS[i] /
-                                2 * M_PI,
+                        (motor->input.position + M_PI) * MOTOR_GEAR_RATIOS[i] / 2 * M_PI,
+                        1000 * motor->input.velocity * MOTOR_GEAR_RATIOS[i] / 2 * M_PI,
                         1000 * motor->input.torque / MOTOR_GEAR_RATIOS[i]};
-                ESP_ERROR_CHECK(odrive_send_command(i, ODRIVE_CMD_SET_INPUT_POS,
-                        &input_pos, sizeof(input_pos)));
+                ESP_ERROR_CHECK(odrive_send_command(
+                        i, ODRIVE_CMD_SET_INPUT_POS, &input_pos, sizeof(input_pos)));
                 break;
             }
             case MOTOR_CONTROL_MODE_VELOCITY: {
                 const ODriveInputVelocity input_vel = {
                         motor->input.velocity * MOTOR_GEAR_RATIOS[i] / 2 * M_PI,
                         motor->input.torque / MOTOR_GEAR_RATIOS[i]};
-                ESP_ERROR_CHECK(odrive_send_command(i, ODRIVE_CMD_SET_INPUT_VEL,
-                        &input_vel, sizeof(input_vel)));
+                ESP_ERROR_CHECK(odrive_send_command(
+                        i, ODRIVE_CMD_SET_INPUT_VEL, &input_vel, sizeof(input_vel)));
                 break;
             }
             default:
@@ -257,8 +248,7 @@ static int dir_create() {
         fresult = f_mkdir(text_buf);
     } while (FR_EXIST == fresult && ++dir_idx);
     if (fresult != FR_OK) {
-        ESP_LOGW(pcTaskGetName(NULL), "f_mkdir sdcard/%d error %d", dir_idx,
-                fresult);
+        ESP_LOGW(pcTaskGetName(NULL), "f_mkdir sdcard/%d error %d", dir_idx, fresult);
         return -1;
     }
     ESP_LOGI(pcTaskGetName(NULL), "f_mkdir sdcard/%d success", dir_idx);
@@ -275,11 +265,9 @@ static void sdcard_init() {
     slot_config.width = 1;  // configure 1-line mode
     sdmmc_card_t* card;
     esp_vfs_fat_sdmmc_mount_config_t mount_config = {
-            .format_if_mount_failed = false,
-            .max_files = 5,
-            .allocation_unit_size = 16 * 1024};
-    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_vfs_fat_sdmmc_mount(
-            "/sdcard", &host, &slot_config, &mount_config, &card));
+            .format_if_mount_failed = false, .max_files = 5, .allocation_unit_size = 16 * 1024};
+    ESP_ERROR_CHECK_WITHOUT_ABORT(
+            esp_vfs_fat_sdmmc_mount("/sdcard", &host, &slot_config, &mount_config, &card));
 }
 
 static void can_init() {
@@ -314,15 +302,14 @@ static void ps3_init() {
 #endif
     ESP_ERROR_CHECK(nvs_flash_init());
     ps3Init();
-    ESP_LOGI(pcTaskGetName(NULL), "Bluetooth MAC %02x:%02x:%02x:%02x:%02x:%02x",
-            mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    ESP_LOGI(pcTaskGetName(NULL), "Bluetooth MAC %02x:%02x:%02x:%02x:%02x:%02x", mac[0], mac[1],
+            mac[2], mac[3], mac[4], mac[5]);
 }
 
 //------------------------------------------------------------------------------
 // tasks
 
-static void gamepad_callback(
-        void* pvParameters, ps3_t ps3_state, ps3_event_t ps3_event) {
+static void gamepad_callback(void* pvParameters, ps3_t ps3_state, ps3_event_t ps3_event) {
     App* app = (App*) pvParameters;
     GamepadMsg* gamepad = &app->slab.gamepad;
     memcpy(&gamepad->buttons, &ps3_state.button, 2);
@@ -340,8 +327,7 @@ static void control_loop(void* pvParameters) {
     AppError* app_error = (AppError*) &app->status.error;
     for (int i = 0; i < 2; ++i) {
         app->status.error |= 1 << i;
-        app->status.motors[i].odrive.state_transition_callback =
-                motors_homing_complete_callback;
+        app->status.motors[i].odrive.state_transition_callback = motors_homing_complete_callback;
         app->status.motors[i].odrive.state_transition_context = app;
     }
     static char text_buf[512];
@@ -353,13 +339,11 @@ static void control_loop(void* pvParameters) {
         ESP_ERROR_CHECK(motors_feedback_update(app));
         // fetch imu updates
         app_error->imu_comms_timeout =
-                IMU_COMMS_TIMEOUT_TICKS <
-                error_counter_update(&app->status.imu_comms_missed,
-                        !imu_read(app->imu, &app->slab.imu));
+                IMU_COMMS_TIMEOUT_TICKS < error_counter_update(&app->status.imu_comms_missed,
+                                                  !imu_read(app->imu, &app->slab.imu));
         // detect gamepad timeout and zero input
         if ((app_error->gamepad_comms_timeout =
-                            tick > GAMEPAD_COMMS_TIMEOUT_TICKS +
-                                           app->status.gamepad_timestamp)) {
+                            tick > GAMEPAD_COMMS_TIMEOUT_TICKS + app->status.gamepad_timestamp)) {
             app->slab.gamepad = (GamepadMsg){0};
         }
         // ImuMsg_to_json(&app->imu_msg, app->json);
@@ -377,8 +361,7 @@ static void control_loop(void* pvParameters) {
             for (int i = 0; i < 2; ++i) {
                 if (app->status.motors[i].status.axis_state != state &&
                         app->status.error & (1 << i)) {
-                    odrive_send_command(i, ODRIVE_CMD_SET_REQUESTED_STATE,
-                            &state, sizeof(state));
+                    odrive_send_command(i, ODRIVE_CMD_SET_REQUESTED_STATE, &state, sizeof(state));
                 }
             }
         }
@@ -392,8 +375,7 @@ static void control_loop(void* pvParameters) {
 }
 
 static void monitor_loop(void* pvParameters) {
-    TRY_STATIC_ASSERT(
-            sizeof(CanStatus) == sizeof(twai_status_info_t), "type mismatch");
+    TRY_STATIC_ASSERT(sizeof(CanStatus) == sizeof(twai_status_info_t), "type mismatch");
     static char text_buf[2048];
 
     assert(pvParameters);
@@ -418,8 +400,7 @@ static void monitor_loop(void* pvParameters) {
         }
     }
 
-    for (app->status.tick = xTaskGetTickCount();;
-            vTaskDelayUntil(&app->status.tick, 300)) {
+    for (app->status.tick = xTaskGetTickCount();; vTaskDelayUntil(&app->status.tick, 300)) {
 #if 0
         puts("Task Name       State   Pri     Stack   Num     CoreId");
         vTaskList(text_buf);
@@ -429,8 +410,7 @@ static void monitor_loop(void* pvParameters) {
         vTaskGetRunTimeStats(text_buf);
         puts(text_buf);
 #endif
-        ESP_ERROR_CHECK(
-                twai_get_status_info((twai_status_info_t*) &app->status.can));
+        ESP_ERROR_CHECK(twai_get_status_info((twai_status_info_t*) &app->status.can));
         uxTaskGetSystemState((TaskStatus_t*) app->status.tasks,
                 sizeof(app->status.tasks) / sizeof(app->status.tasks[0]), NULL);
 
@@ -457,8 +437,6 @@ void app_main(void) {
     app.imu = imu_create();
     ps3SetEventObjectCallback(&app, gamepad_callback);
 
-    xTaskCreatePinnedToCore(monitor_loop, "monitor_loop", 8 * 2048, &app, 1,
-            &app.monitor_task, 0);
-    xTaskCreatePinnedToCore(control_loop, "control_loop", 8 * 2048, &app, 9,
-            &app.control_task, 1);
+    xTaskCreatePinnedToCore(monitor_loop, "monitor_loop", 8 * 2048, &app, 1, &app.monitor_task, 0);
+    xTaskCreatePinnedToCore(control_loop, "control_loop", 8 * 2048, &app, 9, &app.control_task, 1);
 }
