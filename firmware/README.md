@@ -5,12 +5,14 @@
 - ***First check if VDD is connected to 5V or 3.3V***.
 - remove resistors to flash LED, its the one right below the voltage selectors.
 
-### PS3 Controller
-Find the bluetooth mac address in serial console on boot:
-[image]
-Then set controller to connect to that address using util:
+### PS3 Gamepad
+Find the bluetooth MAC address of the ESP32 in UART prints during boot.
 
-If controller disconnects, reconnect by holding home botton to turn off and turn back on again. There is a known bug where reconnect only works on the second attempt.
+[image]
+
+Then configure the PS3 gamepad to connect to that MAC address by following [Sixaxis USB pairing](https://help.ubuntu.com/community/Sixaxis#USB_Pairing).
+
+*If gamepad disconnects, reconnect by holding home button to turn off and turn back on again. There is a known issue where reconnect only works on the second attempt.*
 
 ### CAN Troubleshoot
 - Measure resistance across CANH and CANL to verify 60Ω of the combined termination resistors on each end.
@@ -44,7 +46,7 @@ Then the expected differential voltage across CANH and CANL is either 0V or 3.3V
 
 # ESP32
 Follow the getting started guide in
-[Official ESP-IDF Docs](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/) to setup firmware development enviorment. Alternatively
+[Official ESP-IDF Docs](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/) to setup firmware development enviroment. Alternatively
 [ESP-IDF Docker](https://hub.docker.com/r/espressif/idf) provides everything preconfigured.
 
 ```bash

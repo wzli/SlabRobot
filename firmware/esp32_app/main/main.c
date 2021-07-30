@@ -194,6 +194,7 @@ static esp_err_t motors_feedback_update(App* app) {
 
 static void motors_homing_complete_callback(uint8_t axis_id,
         ODriveAxisState new_state, ODriveAxisState old_state, void* app) {
+    assert(axis_id < 2);
     if (old_state == ODRIVE_AXIS_STATE_HOMING &&
             new_state == ODRIVE_AXIS_STATE_IDLE) {
         ((App*) app)->status.error &= ~(1 << axis_id);
@@ -368,7 +369,7 @@ static void control_loop(void* pvParameters) {
             GamepadMsg_to_json(&app->slab.gamepad, text_buf);
             puts(text_buf);
             // force balance controller disable
-            app->slab.gamepad.buttons &= ~(1 << GAMEPAD_BUTTON_R1);
+            app->slab.gamepad.buttons |= 1 << GAMEPAD_BUTTON_L1;
         }
         // press start button to send homing request
         if (app->slab.gamepad.buttons & GAMEPAD_BUTTON_START) {
