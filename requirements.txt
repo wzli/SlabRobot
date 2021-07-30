@@ -1,4 +1,6 @@
+numpy
 pybullet
+ctypes
 ctypesgen
 inputs
 black

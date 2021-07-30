@@ -207,6 +207,7 @@ static void slab_state_update(Slab* slab) {
 }
 
 void slab_update(Slab* slab) {
+    assert(slab);
     slab_state_update(slab);
     slab_gamepad_input_update(slab);
     if (slab->state.balance_active) {

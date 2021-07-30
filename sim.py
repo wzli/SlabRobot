@@ -4,13 +4,11 @@ import pybullet as p
 import pybullet_data
 import numpy as np
 import time
-import inputs, os, io, fcntl
 import json
+import inputs, os, io, fcntl
 
 import ctypes
-from libslab.build import slab_ctypes
-
-libslab = slab_ctypes._libs["libslab.so"]
+from libslab.build import libslab_py
 
 
 def ctype_to_dict(x):
@@ -87,7 +85,7 @@ class Simulation:
         # add torque sensor to wheels
         for wheel in self.wheels:
             p.enableJointForceTorqueSensor(self.robot, wheel)
-        self.slab = slab_ctypes.Slab()
+        self.slab = libslab_py.Slab()
         # start with legs folded
         for i, leg in enumerate(self.legs):
             p.resetJointState(self.robot, leg, -np.pi, 0)
@@ -108,14 +106,14 @@ class Simulation:
         self.slab.config.max_leg_position = np.pi  # rad
         self.slab.config.min_leg_position = -np.pi  # rad
         self.slab.config.imu_axis_remap[
-            slab_ctypes.AXIS_REMAP_X
-        ] = slab_ctypes.AXIS_REMAP_NEG_X
+            libslab_py.AXIS_REMAP_X
+        ] = libslab_py.AXIS_REMAP_NEG_X
         self.slab.config.imu_axis_remap[
-            slab_ctypes.AXIS_REMAP_Y
-        ] = slab_ctypes.AXIS_REMAP_NEG_Y
+            libslab_py.AXIS_REMAP_Y
+        ] = libslab_py.AXIS_REMAP_NEG_Y
         self.slab.config.imu_axis_remap[
-            slab_ctypes.AXIS_REMAP_Z
-        ] = slab_ctypes.AXIS_REMAP_Z
+            libslab_py.AXIS_REMAP_Z
+        ] = libslab_py.AXIS_REMAP_Z
         self.slab.config.incline_p_gain = p.readUserDebugParameter(self.incline_kp)
         self.slab.config.speed_p_gain = p.readUserDebugParameter(self.speed_kp)
         self.slab.config.speed_i_gain = p.readUserDebugParameter(self.speed_ki)
@@ -180,20 +178,20 @@ class Simulation:
         for i, state in enumerate(joint_states):
             self.slab.motors[i].estimate.position = state[0]
             self.slab.motors[i].estimate.velocity = state[1]
-        self.slab.motors[slab_ctypes.MOTOR_ID_FRONT_LEFT_WHEEL].estimate.position *= -1
-        self.slab.motors[slab_ctypes.MOTOR_ID_FRONT_LEFT_WHEEL].estimate.velocity *= -1
-        self.slab.motors[slab_ctypes.MOTOR_ID_BACK_LEFT_WHEEL].estimate.position *= -1
-        self.slab.motors[slab_ctypes.MOTOR_ID_BACK_LEFT_WHEEL].estimate.velocity *= -1
+        self.slab.motors[libslab_py.MOTOR_ID_FRONT_LEFT_WHEEL].estimate.position *= -1
+        self.slab.motors[libslab_py.MOTOR_ID_FRONT_LEFT_WHEEL].estimate.velocity *= -1
+        self.slab.motors[libslab_py.MOTOR_ID_BACK_LEFT_WHEEL].estimate.position *= -1
+        self.slab.motors[libslab_py.MOTOR_ID_BACK_LEFT_WHEEL].estimate.velocity *= -1
         # update wheel speed input
         p.setJointMotorControlArray(
             self.robot,
             self.wheels,
             p.VELOCITY_CONTROL,
             targetVelocities=[
-                -self.slab.motors[slab_ctypes.MOTOR_ID_FRONT_LEFT_WHEEL].input.velocity,
-                self.slab.motors[slab_ctypes.MOTOR_ID_FRONT_RIGHT_WHEEL].input.velocity,
-                -self.slab.motors[slab_ctypes.MOTOR_ID_BACK_LEFT_WHEEL].input.velocity,
-                self.slab.motors[slab_ctypes.MOTOR_ID_BACK_RIGHT_WHEEL].input.velocity,
+                -self.slab.motors[libslab_py.MOTOR_ID_FRONT_LEFT_WHEEL].input.velocity,
+                self.slab.motors[libslab_py.MOTOR_ID_FRONT_RIGHT_WHEEL].input.velocity,
+                -self.slab.motors[libslab_py.MOTOR_ID_BACK_LEFT_WHEEL].input.velocity,
+                self.slab.motors[libslab_py.MOTOR_ID_BACK_RIGHT_WHEEL].input.velocity,
             ],
         )
         # update leg position input
@@ -202,8 +200,8 @@ class Simulation:
             self.legs,
             p.POSITION_CONTROL,
             targetPositions=[
-                self.slab.motors[slab_ctypes.MOTOR_ID_FRONT_LEGS].input.position,
-                self.slab.motors[slab_ctypes.MOTOR_ID_BACK_LEGS].input.position,
+                self.slab.motors[libslab_py.MOTOR_ID_FRONT_LEGS].input.position,
+                self.slab.motors[libslab_py.MOTOR_ID_BACK_LEGS].input.position,
             ],
             positionGains=[0.01, 0.01],
         )
@@ -218,22 +216,22 @@ class Simulation:
                 for event in events:
                     self.inputs[event.code] = event.state
         self.slab.gamepad.buttons = (
-            (self.inputs.get("BTN_SELECT", 0) << slab_ctypes.GAMEPAD_BUTTON_SELECT)
-            | (self.inputs.get("BTN_THUMBL", 0) << slab_ctypes.GAMEPAD_BUTTON_L3)
-            | (self.inputs.get("BTN_THUMBR", 0) << slab_ctypes.GAMEPAD_BUTTON_R3)
-            | (self.inputs.get("BTN_START", 0) << slab_ctypes.GAMEPAD_BUTTON_START)
-            | (self.inputs.get("BTN_DPAD_UP", 0) << slab_ctypes.GAMEPAD_BUTTON_UP)
-            | (self.inputs.get("BTN_DPAD_RIGHT", 0) << slab_ctypes.GAMEPAD_BUTTON_RIGHT)
-            | (self.inputs.get("BTN_DPAD_DOWN", 0) << slab_ctypes.GAMEPAD_BUTTON_DOWN)
-            | (self.inputs.get("BTN_DPAD_LEFT", 0) << slab_ctypes.GAMEPAD_BUTTON_LEFT)
-            | (min(self.inputs.get("ABS_Z", 0), 1) << slab_ctypes.GAMEPAD_BUTTON_L2)
-            | (min(self.inputs.get("ABS_RZ", 0), 1) << slab_ctypes.GAMEPAD_BUTTON_R2)
-            | (self.inputs.get("BTN_TL", 0) << slab_ctypes.GAMEPAD_BUTTON_L1)
-            | (self.inputs.get("BTN_TR", 0) << slab_ctypes.GAMEPAD_BUTTON_R1)
-            | (self.inputs.get("BTN_NORTH", 0) << slab_ctypes.GAMEPAD_BUTTON_TRIANGLE)
-            | (self.inputs.get("BTN_EAST", 0) << slab_ctypes.GAMEPAD_BUTTON_CIRCLE)
-            | (self.inputs.get("BTN_SOUTH", 0) << slab_ctypes.GAMEPAD_BUTTON_CROSS)
-            | (self.inputs.get("BTN_WEST", 0) << slab_ctypes.GAMEPAD_BUTTON_SQUARE)
+            (self.inputs.get("BTN_SELECT", 0) << libslab_py.GAMEPAD_BUTTON_SELECT)
+            | (self.inputs.get("BTN_THUMBL", 0) << libslab_py.GAMEPAD_BUTTON_L3)
+            | (self.inputs.get("BTN_THUMBR", 0) << libslab_py.GAMEPAD_BUTTON_R3)
+            | (self.inputs.get("BTN_START", 0) << libslab_py.GAMEPAD_BUTTON_START)
+            | (self.inputs.get("BTN_DPAD_UP", 0) << libslab_py.GAMEPAD_BUTTON_UP)
+            | (self.inputs.get("BTN_DPAD_RIGHT", 0) << libslab_py.GAMEPAD_BUTTON_RIGHT)
+            | (self.inputs.get("BTN_DPAD_DOWN", 0) << libslab_py.GAMEPAD_BUTTON_DOWN)
+            | (self.inputs.get("BTN_DPAD_LEFT", 0) << libslab_py.GAMEPAD_BUTTON_LEFT)
+            | (min(self.inputs.get("ABS_Z", 0), 1) << libslab_py.GAMEPAD_BUTTON_L2)
+            | (min(self.inputs.get("ABS_RZ", 0), 1) << libslab_py.GAMEPAD_BUTTON_R2)
+            | (self.inputs.get("BTN_TL", 0) << libslab_py.GAMEPAD_BUTTON_L1)
+            | (self.inputs.get("BTN_TR", 0) << libslab_py.GAMEPAD_BUTTON_R1)
+            | (self.inputs.get("BTN_NORTH", 0) << libslab_py.GAMEPAD_BUTTON_TRIANGLE)
+            | (self.inputs.get("BTN_EAST", 0) << libslab_py.GAMEPAD_BUTTON_CIRCLE)
+            | (self.inputs.get("BTN_SOUTH", 0) << libslab_py.GAMEPAD_BUTTON_CROSS)
+            | (self.inputs.get("BTN_WEST", 0) << libslab_py.GAMEPAD_BUTTON_SQUARE)
         )
         self.slab.gamepad.left_stick.x = self.inputs.get("ABS_X", 128) - 128
         self.slab.gamepad.left_stick.y = self.inputs.get("ABS_Y", 128) - 128
@@ -248,7 +246,7 @@ class Simulation:
         self.slab.tick = self.steps // self.step_divider
         self.update_imu()
         self.update_motors()
-        libslab.slab_update(ctypes.byref(self.slab))
+        libslab_py.slab_update(ctypes.byref(self.slab))
         # print_ctype(self.slab.input)
         # print_ctype(self.slab.imu)
         # print_ctype(self.slab.gamepad)
