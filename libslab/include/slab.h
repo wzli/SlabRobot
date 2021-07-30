@@ -20,9 +20,9 @@ typedef enum {
     AXIS_REMAP_NEG_Z,
 } AxisRemap;
 
-// wheel speed in (rad/s)
-// wheel radius in (m)
-// wheel distance in (m)
+// all angular velocities in (rad/s)
+// all angular positions in (rad)
+// all lengths in (m)
 #define TYPEDEF_SlabConfig(X, _)      \
     X(float, max_wheel_speed, )       \
     X(float, wheel_diameter, )        \
