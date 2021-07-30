@@ -176,19 +176,19 @@ static FIL* file_create(const char* file_name) {
     }
 }
 
-static int dir_create() {
+static int dir_create(const char* dir_name) {
     FRESULT fresult;
-    char text_buf[11];
+    char text_buf[16];
     int dir_idx = 0;
     do {
-        sprintf(text_buf, "%d", dir_idx);
+        sprintf(text_buf, "%s%d", dir_name, dir_idx);
         fresult = f_mkdir(text_buf);
     } while (FR_EXIST == fresult && ++dir_idx);
     if (fresult != FR_OK) {
-        ESP_LOGW(pcTaskGetName(NULL), "f_mkdir sdcard/%d error %d", dir_idx, fresult);
+        ESP_LOGW(pcTaskGetName(NULL), "f_mkdir sdcard/%s error %d", text_buf, fresult);
         return -1;
     }
-    ESP_LOGI(pcTaskGetName(NULL), "f_mkdir sdcard/%d success", dir_idx);
+    ESP_LOGI(pcTaskGetName(NULL), "f_mkdir sdcard/%s success", text_buf);
     return dir_idx;
 }
 
@@ -481,14 +481,12 @@ void app_main(void) {
     can_init();
     i2c_init();
     ps3_init();
-
     // init app
     static App app = {0};
     app.slab.config = SLAB_CONFIG;
-    app.dir_idx = dir_create();
+    app.dir_idx = dir_create("slab");
     app.imu = imu_create();
     ps3SetEventObjectCallback(&app, gamepad_callback);
-
     // init tasks
     xTaskCreatePinnedToCore(monitor_loop, "monitor_loop", 8 * 2048, &app, 1, &app.monitor_task, 0);
     xTaskCreatePinnedToCore(control_loop, "control_loop", 8 * 2048, &app, 9, &app.control_task, 1);
