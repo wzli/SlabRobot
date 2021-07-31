@@ -2,7 +2,8 @@
 Work in progress...
 
 ## Mechanical Design
-![Prototype](images/prototype.png)
+<img src="images/prototype.png" width="50%"/>
+
 [OnShape CAD Document](https://cad.onshape.com/documents/01b7bf47ac0296002ad3efc0/w/656ec7f127d0c64f6943908d/e/5454fd1cd4994d1435836e10)
 
 
@@ -19,7 +20,7 @@ sudo apt install openscad meshlab # install system dependencies
 pip install onshape-to-robot # install python application
 
 # generate and output to urdf directory based on urdf/config.json
-onshape-to-robot urdf 
+onshape-to-robot urdf
 ```
 
 Run the following commands (or the equivalent on your system) to setup:
@@ -61,6 +62,3 @@ The controls are:
   - Right maps to fully folded preset.
 - Holding L button disables balance controller.
 - Balance controller automatically engages when one pair of legs are detected to be off the ground.
-
-
-

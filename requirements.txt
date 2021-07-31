@@ -2,5 +2,6 @@ numpy
 pybullet
 ctypes
 ctypesgen
+pyyaml
 inputs
 black

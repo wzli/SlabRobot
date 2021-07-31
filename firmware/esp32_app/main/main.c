@@ -249,7 +249,7 @@ static esp_err_t motors_feedback_update(App* app) {
 static void motors_homing_complete_callback(
         uint8_t axis_id, ODriveAxisState new_state, ODriveAxisState old_state, void* app) {
     assert(axis_id < 2);
-    // reset homming required error when state transitions from HOMING to IDLE
+    // reset homing required error when state transitions from HOMING to IDLE
     if (old_state == ODRIVE_AXIS_STATE_HOMING && new_state == ODRIVE_AXIS_STATE_IDLE) {
         ((App*) app)->status.error &= ~(1 << axis_id);
     }

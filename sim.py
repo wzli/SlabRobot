@@ -4,7 +4,7 @@ import pybullet as p
 import pybullet_data
 import numpy as np
 import time
-import json
+import yaml
 import inputs, os, io, fcntl
 
 import ctypes
@@ -20,7 +20,7 @@ def ctype_to_dict(x):
 
 
 def print_ctype(x):
-    print(json.dumps(ctype_to_dict(x), indent=2))
+    print(yaml.dump(ctype_to_dict(x), sort_keys=False))
 
 
 class Simulation:
