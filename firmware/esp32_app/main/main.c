@@ -368,9 +368,9 @@ static void control_loop(void* pvParameters) {
             app->slab.tick = tick;
 
             // force balance controller disable
-            app->slab.gamepad.buttons |= 1 << GAMEPAD_BUTTON_L1;
+            app->slab.gamepad.buttons |= GAMEPAD_BUTTON_L1;
             slab_update(&app->slab);
-            app->slab.gamepad.buttons &= ~(1 << GAMEPAD_BUTTON_L1);
+            app->slab.gamepad.buttons &= ~GAMEPAD_BUTTON_L1;
             motors_input_update(app);
         }
     }

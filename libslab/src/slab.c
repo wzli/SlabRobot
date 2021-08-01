@@ -22,16 +22,14 @@ static void slab_gamepad_input_update(Slab* slab) {
         }
     }
     // parse buttons to axis vector
-    float buttons[4] = {
-            GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_LEFT) -
-                    GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_RIGHT),
-            GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_UP) -
-                    GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_DOWN),
-            GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_SQUARE) -
-                    GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_CIRCLE),
-            GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_TRIANGLE) -
-                    GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_CROSS),
-    };
+    float buttons[4] = {(bool) (slab->gamepad.buttons & GAMEPAD_BUTTON_LEFT) -
+                                (bool) (slab->gamepad.buttons & GAMEPAD_BUTTON_RIGHT),
+            (bool) (slab->gamepad.buttons & GAMEPAD_BUTTON_UP) -
+                    (bool) (slab->gamepad.buttons & GAMEPAD_BUTTON_DOWN),
+            (bool) (slab->gamepad.buttons & GAMEPAD_BUTTON_SQUARE) -
+                    (bool) (slab->gamepad.buttons & GAMEPAD_BUTTON_CIRCLE),
+            (bool) (slab->gamepad.buttons & GAMEPAD_BUTTON_TRIANGLE) -
+                    (bool) (slab->gamepad.buttons & GAMEPAD_BUTTON_CROSS)};
     // normalize button axis and scale by trigger
     for (int i = 0; i < 2; ++i) {
         float* axis = buttons + (2 * i);
@@ -45,7 +43,7 @@ static void slab_gamepad_input_update(Slab* slab) {
         axis[Y] *= trigger;
     }
     // disable balance control with L1
-    if (GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_L1)) {
+    if (slab->gamepad.buttons & GAMEPAD_BUTTON_L1) {
         slab->state.balance_active = false;
     }
     // scale velocity input to max wheel speed
@@ -64,7 +62,7 @@ static void slab_gamepad_input_update(Slab* slab) {
     const float leg_speed = 0.02f;
     for (int i = 0, sign = -1; i < 2; ++i, sign *= -1) {
         bool only_contact = slab->state.ground_contacts == i + 1;
-        if (!GET_BIT(slab->gamepad.buttons, GAMEPAD_BUTTON_R1)) {
+        if (!(slab->gamepad.buttons & GAMEPAD_BUTTON_R1)) {
             slab->input.body_incline -=
                     0.5f * leg_speed * legs_input[Y] * SGN(slab->state.body_incline);
             int dir = slab->state.balance_active ? (only_contact ? 2 : -1) : 1;
