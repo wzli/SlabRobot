@@ -1,7 +1,7 @@
 #/bin/bash
 docker_image=espressif/idf:release-v4.3
 app=esp32_app
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+SCRIPT_DIR=$(dirname $(readlink -f $0))
 docker run -it --rm --privileged -w /project/firmware/app \
 -v $SCRIPT_DIR/$app:/project/firmware/app \
 -v $SCRIPT_DIR/../submodules:/project/submodules \
