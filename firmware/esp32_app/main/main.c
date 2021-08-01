@@ -363,13 +363,14 @@ static void control_loop(void* pvParameters) {
             GamepadMsg_to_json(&app->slab.gamepad, text_buf);
             puts(text_buf);
         }
-        // force balance controller disable
-        app->slab.gamepad.buttons |= 1 << GAMEPAD_BUTTON_L1;
-
         // run control logic only when error-free
         if (!app->status.error) {
             app->slab.tick = tick;
+
+            // force balance controller disable
+            app->slab.gamepad.buttons |= 1 << GAMEPAD_BUTTON_L1;
             slab_update(&app->slab);
+            app->slab.gamepad.buttons &= ~(1 << GAMEPAD_BUTTON_L1);
             motors_input_update(app);
         }
     }
@@ -472,16 +473,16 @@ static void ps3_init() {
 
 void app_main(void) {
     // init peripherals
-    sdcard_init();
     can_init();
     i2c_init();
     ps3_init();
+    sdcard_init();
     // init app
     static App app = {0};
     app.slab.config = SLAB_CONFIG;
-    app.dir_idx = dir_create("slab");
     app.imu = imu_create();
     ps3SetEventObjectCallback(&app, gamepad_callback);
+    app.dir_idx = dir_create("slab");
     // init tasks
     xTaskCreatePinnedToCore(monitor_loop, "monitor_loop", 8 * 2048, &app, 1, &app.monitor_task, 0);
     xTaskCreatePinnedToCore(control_loop, "control_loop", 8 * 2048, &app, 9, &app.control_task, 1);
