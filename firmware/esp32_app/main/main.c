@@ -444,6 +444,7 @@ static void can_init() {
             TWAI_GENERAL_CONFIG_DEFAULT(PIN_CAN_TX, PIN_CAN_RX, TWAI_MODE_NORMAL);
     g_config.intr_flags |= ESP_INTR_FLAG_IRAM;
     g_config.rx_queue_len = 32;
+    g_config.tx_queue_len = 16;
     twai_timing_config_t t_config = CAN_BAUD_RATE();
     twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
     ESP_ERROR_CHECK(twai_driver_install(&g_config, &t_config, &f_config));

@@ -2,6 +2,7 @@ numpy
 pybullet
 ctypes
 ctypesgen
+pyserial
 pyyaml
 inputs
 black
