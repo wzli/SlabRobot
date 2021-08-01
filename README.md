@@ -32,12 +32,8 @@ sudo apt install cmake gcc python3
 pip3 install -r requirements.txt
 
 #### Build libslab
-cd libslab
-mkdir build
-cd build
-cmake ..
-make
-cd ../..
+mkdir libslab/build
+(cd libslab/build && cmake .. && make)
 ```
 
 To start, execute `./sim.py`. A connected USB gamepad is required.
