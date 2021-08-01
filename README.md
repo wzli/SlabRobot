@@ -31,7 +31,7 @@ sudo apt install cmake gcc python3
 # Install pytohn dependencies:
 pip3 install -r requirements.txt
 
-#### Build libslab
+# Build libslab
 mkdir libslab/build
 (cd libslab/build && cmake .. && make)
 ```

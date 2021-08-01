@@ -8,9 +8,11 @@
 ### PS3 Gamepad
 Find the bluetooth MAC address of the ESP32 in UART prints during boot.
 
-[image]
+![Bluetooth MAC](../images/bluetooth_mac.png)
 
 Then configure the PS3 gamepad to connect to that MAC address by following [Sixaxis USB pairing](https://help.ubuntu.com/community/Sixaxis#USB_Pairing).
+
+Once MAC is configured. Press gamepad home button to turn on and connect.
 
 *If gamepad disconnects, reconnect by holding home button to turn off and turn back on again. There is a known issue where reconnect only works on the second attempt.*
 
@@ -32,7 +34,7 @@ Then configure the PS3 gamepad to connect to that MAC address by following [Sixa
   odrv0.reboot()
   ```
 Then the expected differential voltage across CANH and CANL is either 0V or 3.3V.
-  
+
 - Check that the DIP switch for toggling termination resistor is set correctly.
 - Check that all devices on bus is configured to a unique node ID.
 

@@ -73,7 +73,7 @@ typedef struct {
 } AppError;
 
 #define TYPEDEF_ErrorCounter(X, _) \
-    X(int32_t, running, )          \
+    _(int32_t, running, )          \
     X(int32_t, total, )
 MXGEN(struct, ErrorCounter)
 
@@ -356,9 +356,6 @@ static void control_loop(void* pvParameters) {
             }
         }
 
-        // force balance controller disable
-        app->slab.gamepad.buttons |= 1 << GAMEPAD_BUTTON_L1;
-
         // ImuMsg_to_json(&app->imu_msg, app->json);
         // Vector3F_to_json(&app->imu_msg.linear_acceleration, app->json);
         // puts(app->json);
@@ -366,6 +363,8 @@ static void control_loop(void* pvParameters) {
             GamepadMsg_to_json(&app->slab.gamepad, text_buf);
             puts(text_buf);
         }
+        // force balance controller disable
+        app->slab.gamepad.buttons |= 1 << GAMEPAD_BUTTON_L1;
 
         // run control logic only when error-free
         if (!app->status.error) {
@@ -386,7 +385,7 @@ static void monitor_loop(void* pvParameters) {
     // create new csv log file on sdcard if directory exists
     FIL* csv_log = NULL;
     if (app->dir_idx > -1) {
-        sprintf(text_buf, "%d/%s", app->dir_idx, "status.csv");
+        sprintf(text_buf, "slab%d/%s", app->dir_idx, "status.csv");
         // write csv header row if file was successfully created
         if ((csv_log = file_create(text_buf))) {
             int len = AppStatus_to_csv_header(0, text_buf);
@@ -463,15 +462,11 @@ static void i2c_init() {
 }
 
 static void ps3_init() {
-#if 0
-    // static const uint8_t mac[6] = {0x54, 0x54, 0x54, 0x54, 0x54, 0x54};
-    // ps3SetBluetoothMacAddress(mac);
-#else
-    const uint8_t* mac = esp_bt_dev_get_address();
-#endif
     ESP_ERROR_CHECK(nvs_flash_init());
     ps3Init();
-    ESP_LOGI(pcTaskGetName(NULL), "Bluetooth MAC %02x:%02x:%02x:%02x:%02x:%02x", mac[0], mac[1],
+    const uint8_t* mac = esp_bt_dev_get_address();
+    assert(mac);
+    ESP_LOGI(pcTaskGetName(NULL), "Bluetooth MAC %hhx:%hhx:%hhx:%hhx:%hhx:%hhx", mac[0], mac[1],
             mac[2], mac[3], mac[4], mac[5]);
 }
 
