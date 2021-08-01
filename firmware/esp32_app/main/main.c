@@ -126,7 +126,7 @@ MXGEN(union, MotorStatus)
 
 #define TYPEDEF_AppStatus(X, _)                     \
     X(uint32_t, tick, )                             \
-    X(CanStatus, can, )                             \
+    _(CanStatus, can, )                             \
     _(TaskStatus, tasks, [8])                       \
     X(MotorStatus, motors, [N_MOTORS])              \
     X(ErrorCounter, motor_comms_missed, [N_MOTORS]) \
@@ -337,12 +337,20 @@ static void control_loop(void* pvParameters) {
             app->slab.imu.angular_velocity = (Vector3F){0};
         }
         // detect gamepad timeout
-        app_error->gamepad_comms_timeout =
-                tick > app->status.gamepad_timestamp + GAMEPAD_COMMS_TIMEOUT_TICKS;
-        // reset gamepad input on timeout
-        if (app_error->gamepad_comms_timeout) {
+        bool gamepad_timeout = tick > app->status.gamepad_timestamp + GAMEPAD_COMMS_TIMEOUT_TICKS;
+        if (gamepad_timeout) {
+            // reset gamepad input on timeout
             app->slab.gamepad = (GamepadMsg){0};
+#if 0
+        } else if (app->status.error) {
+            // set error pattern LED on controller
+            ps3SetLed(10);
+#endif
+        } else if (app_error->gamepad_comms_timeout) {
+            // set controller LED on first connection
+            ps3SetLed(1);
         }
+        app_error->gamepad_comms_timeout = gamepad_timeout;
         // press start button to send homing request
         if (app->slab.gamepad.buttons & GAMEPAD_BUTTON_START) {
             static const uint32_t state = ODRIVE_AXIS_STATE_HOMING;
@@ -354,14 +362,6 @@ static void control_loop(void* pvParameters) {
                             i, ODRIVE_CMD_SET_REQUESTED_STATE, &state, sizeof(state)));
                 }
             }
-        }
-
-        // ImuMsg_to_json(&app->imu_msg, app->json);
-        // Vector3F_to_json(&app->imu_msg.linear_acceleration, app->json);
-        // puts(app->json);
-        if (app->slab.gamepad.buttons) {
-            GamepadMsg_to_json(&app->slab.gamepad, text_buf);
-            puts(text_buf);
         }
         // run control logic only when error-free
         if (!app->status.error) {
@@ -395,7 +395,7 @@ static void monitor_loop(void* pvParameters) {
         }
     }
     // monitor loops at a lower frequency
-    for (app->status.tick = xTaskGetTickCount();; vTaskDelayUntil(&app->status.tick, 300)) {
+    for (app->status.tick = xTaskGetTickCount();; vTaskDelayUntil(&app->status.tick, 10)) {
 #if 0
         // print task status
         puts("Task Name       State   Pri     Stack   Num     CoreId");
@@ -405,16 +405,20 @@ static void monitor_loop(void* pvParameters) {
         puts("Task Name       Abs Time        % Time");
         vTaskGetRunTimeStats(text_buf);
         puts(text_buf);
-#endif
         // update can status
         ESP_ERROR_CHECK(twai_get_status_info((twai_status_info_t*) &app->status.can));
         // update task status
         uxTaskGetSystemState((TaskStatus_t*) app->status.tasks,
                 sizeof(app->status.tasks) / sizeof(app->status.tasks[0]), NULL);
+#endif
         // print app status to uart
-        AppStatus_to_json(&app->status, text_buf);
-        puts(text_buf);
-        puts("");
+        {
+            int len = AppStatus_to_json(&app->status, text_buf);
+            text_buf[len++] = '\n';
+            SlabInput_to_json(&app->slab.input, text_buf + len);
+            puts(text_buf);
+            puts("");
+        }
         // log app status as csv entry
         if (csv_log) {
             int len = AppStatus_to_csv_entry(&app->status, text_buf);
