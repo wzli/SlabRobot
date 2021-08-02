@@ -3,12 +3,29 @@
 import pybullet as p
 import pybullet_data
 import numpy as np
-import time
-import yaml
 import inputs, os, io, fcntl
+
+import tkinter as tk
+from tkinter import ttk
 
 import ctypes
 from libslab.build import libslab_py
+
+
+def json_tree_update(tree, parent, dictionary, insert=True):
+    for key, value in dictionary.items():
+        node = "/".join((parent, str(key)))
+        if isinstance(value, list):
+            value = dict(enumerate(value))
+        if insert:
+            try:
+                tree.insert(parent, "end", node, text=key, open=False)
+            except tk.TclError:
+                pass
+        try:
+            json_tree_update(tree, node, value)
+        except AttributeError:
+            tree.set(node, 0, value)
 
 
 def ctype_to_dict(x):
@@ -19,12 +36,15 @@ def ctype_to_dict(x):
     return {field: ctype_to_dict(getattr(x, field)) for field, _ in x._fields_}
 
 
-def print_ctype(x):
-    print(yaml.dump(ctype_to_dict(x), sort_keys=False))
-
-
 class Simulation:
     def __init__(self):
+        # tk setup
+        self.root = tk.Tk()
+        self.root.title("Live Data")
+        self.root.bind("<Escape>", lambda x: self.root.destroy())
+        self.tree = ttk.Treeview(self.root, columns="value")
+        self.tree.pack(expand=1, fill=tk.BOTH)
+        # input
         self.init_inputs()
         # pybullet setup
         physicsClient = p.connect(p.GUI)
@@ -34,7 +54,7 @@ class Simulation:
         self.reset_button = p.addUserDebugParameter("reset", 1, 0, 0)
         self.center_button_count = 0
         self.center_button = p.addUserDebugParameter("center", 1, 0, 0)
-        self.sim_rate = p.addUserDebugParameter("sim_rate", 0, 5, 1)
+        self.sim_rate = p.addUserDebugParameter("sim_rate", 0.1, 4, 1)
         self.incline_kp = p.addUserDebugParameter("Incline Kp", 0, 50, 30)
         self.speed_kp = p.addUserDebugParameter("Speed Kp", 0, 1.0, 0.6)
         self.speed_ki = p.addUserDebugParameter("Speed Ki", 0, 0.02, 0.003)
@@ -247,19 +267,27 @@ class Simulation:
         self.update_imu()
         self.update_motors()
         libslab_py.slab_update(ctypes.byref(self.slab))
-        print_ctype(self.slab.state)
-        # print_ctype(self.slab.gamepad)
-        # print_ctype(self.slab.input)
+
+    def sim_loop(self):
+        delay_ms = round(1000 / (240 * p.readUserDebugParameter(self.sim_rate)))
+        self.root.after(delay_ms, self.sim_loop)
+
+        p.stepSimulation()
+        self.update_inputs()
+        self.update_slab()
+        self.steps += 1
+        self.handle_reset_button()
+        self.handle_center_button()
+
+    def tree_update_loop(self):
+        self.tree.after(100, self.tree_update_loop)
+        json_tree_update(self.tree, "", ctype_to_dict(self.slab), insert=False)
 
     def run(self):
-        while True:
-            p.stepSimulation()
-            self.update_inputs()
-            self.update_slab()
-            self.steps += 1
-            time.sleep(1.0 / (240.0 * p.readUserDebugParameter(self.sim_rate)))
-            self.handle_reset_button()
-            self.handle_center_button()
+        json_tree_update(self.tree, "", ctype_to_dict(self.slab))
+        self.tree_update_loop()
+        self.sim_loop()
+        self.root.mainloop()
         p.disconnect()
 
 
