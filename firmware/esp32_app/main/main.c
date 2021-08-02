@@ -198,6 +198,15 @@ static int dir_create(const char* dir_name) {
 extern Imu* imu_create();
 extern bool imu_read(Imu* imu, ImuMsg* imu_msg);
 
+static void ps3_gamepad_led_update(AppError app_error) {
+    ps3_cmd_t cmd = {0};
+    cmd.led1 = !app_error.gamepad_comms_timeout;
+    cmd.led2 = app_error.homing_required_front || app_error.homing_required_back;
+    cmd.led3 = app_error.motor_error || app_error.motor_comms_timeout;
+    cmd.led4 = app_error.imu_comms_timeout;
+    ps3Cmd(cmd);
+}
+
 static esp_err_t motors_error_request(uint32_t tick) {
     // send a different error request command every tick
     uint8_t axis_id = (tick / 2) % N_MOTORS;
@@ -244,6 +253,17 @@ static esp_err_t motors_feedback_update(App* app) {
         }
     }
     return rx_error;
+}
+
+static void motors_homing_request(const App* app) {
+    static const uint32_t state = ODRIVE_AXIS_STATE_HOMING;
+    for (int i = 0; i < 2; ++i) {
+        // only send request if homing required and not already homing
+        if (app->status.error & (1 << i) && app->status.motors[i].status.axis_state != state) {
+            ESP_ERROR_CHECK(
+                    odrive_send_command(i, ODRIVE_CMD_SET_REQUESTED_STATE, &state, sizeof(state)));
+        }
+    }
 }
 
 static void motors_homing_complete_callback(
@@ -338,30 +358,19 @@ static void control_loop(void* pvParameters) {
             app->slab.imu.angular_velocity = (Vector3F){0};
         }
         // detect gamepad communication timeout
-        if ((app_error->gamepad_comms_timeout =
-                            tick > app->status.gamepad_timestamp + GAMEPAD_COMMS_TIMEOUT_TICKS)) {
-            // reset gamepad input on timeout
+        app_error->gamepad_comms_timeout =
+                tick > app->status.gamepad_timestamp + GAMEPAD_COMMS_TIMEOUT_TICKS;
+        // reset gamepad input on timeout
+        if (app_error->gamepad_comms_timeout) {
             app->slab.gamepad = (GamepadMsg){0};
-        } else if (app->status.error != prev_app_error) {
-            // set controller LED when error state changes
-            ps3_cmd_t cmd = {0};
-            cmd.led1 = !app_error->gamepad_comms_timeout;
-            cmd.led2 = app_error->homing_required_front || app_error->homing_required_back;
-            cmd.led3 = app_error->motor_error || app_error->motor_comms_timeout;
-            cmd.led4 = app_error->imu_comms_timeout;
-            ps3Cmd(cmd);
+        }
+        // set controller LED when error state changes
+        else if (app->status.error != prev_app_error) {
+            ps3_gamepad_led_update(*app_error);
         }
         // press start button to send homing request
         if (app->slab.gamepad.buttons & GAMEPAD_BUTTON_START) {
-            static const uint32_t state = ODRIVE_AXIS_STATE_HOMING;
-            for (int i = 0; i < 2; ++i) {
-                // only send request if homing required and not already homing
-                if (app->status.error & (1 << i) &&
-                        app->status.motors[i].status.axis_state != state) {
-                    ESP_ERROR_CHECK(odrive_send_command(
-                            i, ODRIVE_CMD_SET_REQUESTED_STATE, &state, sizeof(state)));
-                }
-            }
+            motors_homing_request(app);
         }
         // run control logic only when error-free
         if (!app->status.error) {
