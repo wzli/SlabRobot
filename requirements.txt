@@ -3,6 +3,6 @@ pybullet
 ctypes
 ctypesgen
 pyserial
-pyyaml
+tk
 inputs
 black

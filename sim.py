@@ -19,7 +19,7 @@ def json_tree_update(tree, parent, dictionary, insert=True):
             value = dict(enumerate(value))
         if insert:
             try:
-                tree.insert(parent, "end", node, text=key, open=False)
+                tree.insert(parent, "end", node, text=key)
             except tk.TclError:
                 pass
         try:
