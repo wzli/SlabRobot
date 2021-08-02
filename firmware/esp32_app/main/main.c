@@ -202,7 +202,7 @@ static esp_err_t motors_error_request(uint32_t tick) {
     // send a different error request command every tick
     uint8_t axis_id = (tick / 2) % N_MOTORS;
     uint8_t cmd_id = tick & 1 ? ODRIVE_CMD_GET_MOTOR_ERROR : ODRIVE_CMD_GET_ENCODER_ERROR;
-    return odrive_send_command(axis_id, cmd_id, 0, 0);
+    return odrive_send_get_command(axis_id, cmd_id);
 }
 
 static esp_err_t motors_feedback_update(App* app) {
