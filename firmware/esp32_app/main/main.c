@@ -314,6 +314,7 @@ static void control_loop(void* pvParameters) {
     static char text_buf[512];
     App* app = (App*) pvParameters;
     AppError* app_error = (AppError*) &app->status.error;
+    uint32_t prev_app_error = app->status.error;
     // require homing for both leg motors on startup
     for (int i = 0; i < 2; ++i) {
         app->status.error |= 1 << i;
@@ -336,21 +337,20 @@ static void control_loop(void* pvParameters) {
             app->slab.imu.linear_acceleration = (Vector3F){0};
             app->slab.imu.angular_velocity = (Vector3F){0};
         }
-        // detect gamepad timeout
-        bool gamepad_timeout = tick > app->status.gamepad_timestamp + GAMEPAD_COMMS_TIMEOUT_TICKS;
-        if (gamepad_timeout) {
+        // detect gamepad communication timeout
+        if ((app_error->gamepad_comms_timeout =
+                            tick > app->status.gamepad_timestamp + GAMEPAD_COMMS_TIMEOUT_TICKS)) {
             // reset gamepad input on timeout
             app->slab.gamepad = (GamepadMsg){0};
-#if 0
-        } else if (app->status.error) {
-            // set error pattern LED on controller
-            ps3SetLed(10);
-#endif
-        } else if (app_error->gamepad_comms_timeout) {
-            // set controller LED on first connection
-            ps3SetLed(1);
+        } else if (app->status.error != prev_app_error) {
+            // set controller LED when error state changes
+            ps3_cmd_t cmd = {0};
+            cmd.led1 = !app_error->gamepad_comms_timeout;
+            cmd.led2 = app_error->homing_required_front || app_error->homing_required_back;
+            cmd.led3 = app_error->motor_error || app_error->motor_comms_timeout;
+            cmd.led4 = app_error->imu_comms_timeout;
+            ps3Cmd(cmd);
         }
-        app_error->gamepad_comms_timeout = gamepad_timeout;
         // press start button to send homing request
         if (app->slab.gamepad.buttons & GAMEPAD_BUTTON_START) {
             static const uint32_t state = ODRIVE_AXIS_STATE_HOMING;
@@ -487,6 +487,7 @@ void app_main(void) {
     app.slab.config = SLAB_CONFIG;
     app.imu = imu_create();
     ps3SetEventObjectCallback(&app, gamepad_callback);
+    esp_log_level_set("PS3_L2CAP", ESP_LOG_WARN);
     app.dir_idx = dir_create("slab");
     // init tasks
     xTaskCreatePinnedToCore(monitor_loop, "monitor_loop", 8 * 2048, &app, 1, &app.monitor_task, 0);
