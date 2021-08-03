@@ -1,8 +1,9 @@
 numpy
+matplotlib
+tk
 pybullet
 ctypes
 ctypesgen
 pyserial
-tk
 inputs
 black
