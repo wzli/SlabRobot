@@ -138,7 +138,7 @@ MXGEN(struct, AppStatus)
 typedef struct Imu Imu;
 
 #define TYPEDEF_App(X, _)           \
-    X(int32_t, dir_idx, )           \
+    _(int32_t, dir_idx, )           \
     _(TaskHandle_t, control_task, ) \
     _(TaskHandle_t, monitor_task, ) \
     _(Imu*, imu, )                  \
@@ -387,7 +387,7 @@ static void control_loop(void* pvParameters) {
 
 static void monitor_loop(void* pvParameters) {
     App* app = (App*) pvParameters;
-    static char text_buf[2048];
+    static char text_buf[4096];
     // check memory layout alignment of reinterpreted structs
     TRY_STATIC_ASSERT(sizeof(CanStatus) == sizeof(twai_status_info_t), "memory layout mismatch");
     TRY_STATIC_ASSERT(sizeof(TaskStatus) == sizeof(TaskStatus_t), "memory layout mismatch");
@@ -404,7 +404,7 @@ static void monitor_loop(void* pvParameters) {
         }
     }
     // monitor loops at a lower frequency
-    for (app->status.tick = xTaskGetTickCount();; vTaskDelayUntil(&app->status.tick, 10)) {
+    for (app->status.tick = xTaskGetTickCount();; vTaskDelayUntil(&app->status.tick, 25)) {
 #if 0
         // print task status
         puts("Task Name       State   Pri     Stack   Num     CoreId");
@@ -420,14 +420,9 @@ static void monitor_loop(void* pvParameters) {
         uxTaskGetSystemState((TaskStatus_t*) app->status.tasks,
                 sizeof(app->status.tasks) / sizeof(app->status.tasks[0]), NULL);
 #endif
-        // print app status to uart
-        {
-            int len = AppStatus_to_json(&app->status, text_buf);
-            text_buf[len++] = '\n';
-            SlabInput_to_json(&app->slab.input, text_buf + len);
-            puts(text_buf);
-            puts("");
-        }
+        // print app data to uart
+        App_to_json(app, text_buf);
+        puts(text_buf);
         // log app status as csv entry
         if (csv_log) {
             int len = AppStatus_to_csv_entry(&app->status, text_buf);

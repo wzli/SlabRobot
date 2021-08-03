@@ -9,18 +9,20 @@ from tkinter import ttk
 
 
 def json_tree_update(tree, parent, dictionary):
+    if not isinstance(dictionary, dict):
+        return tree.set(parent, 0, dictionary)
     for key, value in dictionary.items():
-        node = "/".join((parent, str(key)))
         if isinstance(value, list):
-            value = dict(enumerate(value))
+            value = {str(i): x for i, x in enumerate(value)}
+        if isinstance(value, dict) and len(value) == 1:
+            ((child_key, value),) = value.items()
+            key += "_" + child_key
+        node = parent + "/" + key
         try:
             tree.insert(parent, "end", node, text=key)
         except tk.TclError:
             pass
-        try:
-            json_tree_update(tree, node, value)
-        except AttributeError:
-            tree.set(node, 0, value)
+        json_tree_update(tree, node, value)
 
 
 class SerialJson:
