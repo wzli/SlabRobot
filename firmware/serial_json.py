@@ -140,17 +140,9 @@ class SerialJson:
         y_max = 0
         # update each enabled line
         for key, scale in self.plot_scales.items():
-            # scope down node containing data
-            sample = self.latest_data
-            for x in key.split("/"):
-                try:
-                    x = int(x)
-                except:
-                    pass
-                sample = sample[x]
             # apply scale factor
             try:
-                sample = float(sample) * scale
+                sample = float(self.tree.set(key, 0)) * scale
             except:
                 continue
             # apply offset
