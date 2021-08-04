@@ -70,7 +70,12 @@ typedef struct {
     bool motor_comms_timeout : 1;
     bool imu_comms_timeout : 1;
     bool gamepad_comms_timeout : 1;
-} AppError;
+} AppErrorFlags;
+
+#define TYPEDEF_AppError(X, _) \
+    X(uint32_t, code, )        \
+    _(AppErrorFlags, flags, )
+MXGEN(union, AppError)
 
 #define TYPEDEF_ErrorCounter(X, _) \
     _(int32_t, running, )          \
@@ -132,7 +137,7 @@ MXGEN(union, MotorStatus)
     X(ErrorCounter, motor_comms_missed, [N_MOTORS]) \
     X(ErrorCounter, imu_comms_missed, )             \
     X(uint32_t, gamepad_timestamp, )                \
-    X(uint32_t, error, )
+    X(AppError, error, )
 MXGEN(struct, AppStatus)
 
 typedef struct Imu Imu;
@@ -200,10 +205,16 @@ extern bool imu_read(Imu* imu, ImuMsg* imu_msg);
 
 static void ps3_gamepad_led_update(AppError app_error) {
     ps3_cmd_t cmd = {0};
-    cmd.led1 = !app_error.gamepad_comms_timeout;
-    cmd.led2 = app_error.homing_required_front || app_error.homing_required_back;
-    cmd.led3 = app_error.motor_error || app_error.motor_comms_timeout;
-    cmd.led4 = app_error.imu_comms_timeout;
+    cmd.led1 = !app_error.flags.gamepad_comms_timeout;
+    cmd.led2 = app_error.flags.homing_required_front || app_error.flags.homing_required_back;
+    cmd.led3 = app_error.flags.motor_error || app_error.flags.motor_comms_timeout;
+    cmd.led4 = app_error.flags.imu_comms_timeout;
+    if (app_error.code > 3) {
+        cmd.rumble_left_intensity = 255;
+        cmd.rumble_right_intensity = 255;
+        cmd.rumble_left_duration = 10;
+        cmd.rumble_right_duration = 10;
+    }
     ps3Cmd(cmd);
 }
 
@@ -214,7 +225,6 @@ static esp_err_t motors_error_request(uint32_t tick) {
     return odrive_send_get_command(axis_id, cmd_id);
 }
 static esp_err_t motors_feedback_update(App* app) {
-    AppError* app_error = (AppError*) &app->status.error;
     ODriveAxis* odrives = &app->status.motors->odrive;
     // clear updates flags
     for (int i = 0; i < N_MOTORS; ++i) {
@@ -222,13 +232,13 @@ static esp_err_t motors_feedback_update(App* app) {
     }
     // fetch updates
     esp_err_t rx_error = odrive_receive_updates(odrives, N_MOTORS);
-    app_error->motor_comms_timeout = false;
+    app->status.error.flags.motor_comms_timeout = false;
     for (int i = 0; i < N_MOTORS; ++i) {
         // check for motor comms timeout
         const uint8_t* updated = (uint8_t*) &odrives[i].updates;
         if (error_counter_update(&app->status.motor_comms_missed[i], *updated == 0) >
                 MOTOR_COMMS_TIMEOUT_TICKS) {
-            app_error->motor_comms_timeout = true;
+            app->status.error.flags.motor_comms_timeout = true;
             // reset velocity and current estimates on timeout
             odrives[i].encoder_estimates.velocity = 0;
             odrives[i].sensorless_estimates.velocity = 0;
@@ -241,7 +251,7 @@ static esp_err_t motors_feedback_update(App* app) {
                             ~ODRIVE_AXIS_ERROR_MAX_ENDSTOP_PRESSED)) ||
                 (odrives[i].updates.motor_error && odrives[i].motor_error) ||
                 (odrives[i].updates.encoder_error && odrives[i].encoder_error)) {
-            app_error->motor_error = true;
+            app->status.error.flags.motor_error = true;
         }
         // convert odrive interface to motor interface
         // change cycles to radians then scale by gear ratio
@@ -259,7 +269,8 @@ static void motors_homing_request(const App* app) {
     static const uint32_t state = ODRIVE_AXIS_STATE_HOMING;
     for (int i = 0; i < 2; ++i) {
         // only send request if homing required and not already homing
-        if (app->status.error & (1 << i) && app->status.motors[i].status.axis_state != state) {
+        if (app->status.error.code & (1 << i) &&
+                app->status.motors[i].status.axis_state != state) {
             ESP_ERROR_CHECK(odrive_send_command(i, ODRIVE_CMD_CLEAR_ERRORS, NULL, 0));
             ESP_ERROR_CHECK(
                     odrive_send_command(i, ODRIVE_CMD_SET_REQUESTED_STATE, &state, sizeof(state)));
@@ -273,10 +284,11 @@ static void motors_homing_complete_callback(
     App* app = (App*) context;
     // reset homing required error when state transitions from HOMING to IDLE
     if (old_state == ODRIVE_AXIS_STATE_HOMING && new_state == ODRIVE_AXIS_STATE_IDLE) {
+        app->status.error.code &= ~(1 << axis_id);
         app->slab.input.leg_positions[axis_id] = -M_PI;
         app->slab.motors[axis_id].input = (MotorInput){-M_PI, 0, 0, MOTOR_CONTROL_MODE_POSITION};
         app->slab.motors[axis_id].estimate = (MotorEstimate){-M_PI, 0};
-        app->status.error &= ~(1 << axis_id);
+        ps3_gamepad_led_update(app->status.error);
     }
 }
 
@@ -337,11 +349,10 @@ static void gamepad_callback(void* pvParameters, ps3_t ps3_state, ps3_event_t ps
 
 static void control_loop(void* pvParameters) {
     App* app = (App*) pvParameters;
-    AppError* app_error = (AppError*) &app->status.error;
-    uint32_t prev_app_error = app->status.error;
+    uint32_t prev_error_code = app->status.error.code;
     // require homing for both leg motors on startup
     for (int i = 0; i < 2; ++i) {
-        app->status.error |= 1 << i;
+        app->status.error.code |= 1 << i;
         app->status.motors[i].odrive.state_transition_callback = motors_homing_complete_callback;
         app->status.motors[i].odrive.state_transition_context = app;
     }
@@ -353,38 +364,39 @@ static void control_loop(void* pvParameters) {
         ESP_ERROR_CHECK(motors_error_request(tick));
         ESP_ERROR_CHECK(motors_feedback_update(app));
         // fetch imu updates
-        app_error->imu_comms_timeout =
+        app->status.error.flags.imu_comms_timeout =
                 error_counter_update(&app->status.imu_comms_missed,
                         !imu_read(app->imu, &app->slab.imu)) > IMU_COMMS_TIMEOUT_TICKS;
         // reset accelerometer and gyro readings on timeout
-        if (app_error->imu_comms_timeout) {
+        if (app->status.error.flags.imu_comms_timeout) {
             app->slab.imu.linear_acceleration = (Vector3F){0};
             app->slab.imu.angular_velocity = (Vector3F){0};
         }
         // detect gamepad communication timeout
-        app_error->gamepad_comms_timeout =
+        app->status.error.flags.gamepad_comms_timeout =
                 tick > app->status.gamepad_timestamp + GAMEPAD_COMMS_TIMEOUT_TICKS;
         // reset gamepad input on timeout
-        if (app_error->gamepad_comms_timeout) {
+        if (app->status.error.flags.gamepad_comms_timeout) {
             app->slab.gamepad = (GamepadMsg){0};
         }
         // set controller LED when error state changes
-        else if (app->status.error != prev_app_error) {
-            ps3_gamepad_led_update(*app_error);
-        }
-        // press start button to send homing request
-        if (app->slab.gamepad.buttons & GAMEPAD_BUTTON_START) {
-            motors_homing_request(app);
+        else if (app->status.error.code != prev_error_code) {
+            ps3_gamepad_led_update(app->status.error);
         }
         // request estop if there is an error
-        if (app->status.error) {
+        if (app->status.error.code > 0xF) {
             for (int i = 0; i < N_MOTORS; ++i) {
                 if (app->status.motors[i].status.axis_state != ODRIVE_AXIS_STATE_IDLE) {
                     ESP_ERROR_CHECK(odrive_send_command(i, ODRIVE_CMD_ESTOP, NULL, 0));
                 }
             }
-        } else {
-            // run control logic only when error-free
+        }
+        // press start button to send homing request
+        if (app->slab.gamepad.buttons & GAMEPAD_BUTTON_START) {
+            motors_homing_request(app);
+        }
+        // run control logic only when error-free
+        if (!app->status.error.code) {
             app->slab.tick = tick;
             // force balance controller disable
             app->slab.gamepad.buttons |= GAMEPAD_BUTTON_L1;

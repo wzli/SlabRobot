@@ -213,7 +213,7 @@ parser = argparse.ArgumentParser(
 )
 parser.add_argument("-p", "--port", type=str, default="/dev/ttyUSB0")
 parser.add_argument("-b", "--baudrate", type=int, default=921600)
-parser.add_argument("-t", "--timespan", type=int, default=5000)
+parser.add_argument("-t", "--timespan", type=int, default=10000)
 parser.add_argument("-s", "--sample-interval", type=int, default=50)
 args = parser.parse_args()
 SerialJson(
