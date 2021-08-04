@@ -12,7 +12,6 @@ from tkinter import ttk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.animation as animation
 from matplotlib.figure import Figure
-import numpy as np
 
 
 def json_tree_update(tree, parent, dictionary):
@@ -33,11 +32,15 @@ def json_tree_update(tree, parent, dictionary):
 
 
 class SerialJson:
-    def __init__(self, port, baudrate, timespan):
+    def __init__(self, port, baudrate, timespan, sample_interval):
         # store params
         self.port = port
         self.baudrate = baudrate
-        self.x_range = np.linspace(0, timespan, round(10 * timespan))
+        self.sample_interval = sample_interval
+        self.x_range = [
+            t * self.sample_interval
+            for t in range(round(timespan / self.sample_interval))
+        ]
         # initialize data
         self.latest_data = {}
         self.latest_time = 0
@@ -77,8 +80,9 @@ class SerialJson:
         ).start()
         # start plot animation
         self.animation = animation.FuncAnimation(
-            self.fig, self.plot_update, interval=100
+            self.fig, self.plot_update, interval=1000
         )
+        self.sample_update()
         # start periodic treeview update
         self.tk_tree_update()
         # run app
@@ -143,38 +147,50 @@ class SerialJson:
         y_max = 0
         # update each enabled line
         for key, scale in self.plot_scales.items():
-            # apply scale factor
-            try:
-                sample = float(self.tree.set(key, 0)) * scale
-            except:
-                continue
-            # apply offset
-            try:
-                sample += float(self.tree.set(key, 2))
-            except:
-                pass
-            # create new line of not already exits
-            if key not in self.plot_lines:
-                zeros = np.zeros(len(self.x_range))
-                zeros[-1] = sample
+            if key in self.plot_lines:
+                line, samples = self.plot_lines[key]
+                samples = samples[-len(self.x_range) :]
+                line.set_ydata(samples)
+                y_min = min(y_min, min(samples))
+                y_max = max(y_max, max(samples))
+            else:
+                # create new line of not already exits
+                zeros = [0] * len(self.x_range)
                 (line,) = self.ax.plot(self.x_range, zeros, label=key)
                 self.ax.legend()
                 self.plot_lines[key] = (line, zeros)
-            else:
-                # otherwise append data
-                line, samples = self.plot_lines[key]
-                samples[:-1] = samples[1:]
-                samples[-1] = sample
-                line.set_data(self.x_range, samples)
-                y_min = min(y_min, samples.min())
-                y_max = max(y_max, samples.max())
         # rescale plot limits
         if y_min != 0 or y_max != 0:
             self.ax.set_ylim(y_min * 1.01, y_max * 1.01)
 
+    def sample_update(self):
+        self.root.after(self.sample_interval, self.sample_update)
+        # update plot samples
+        for key, scale in self.plot_scales.items():
+            if key in self.plot_lines:
+                # scope down node containing data
+                sample = self.latest_data
+                for x in key.split("/"):
+                    try:
+                        x = int(x)
+                    except:
+                        pass
+                    sample = sample[x]
+                # apply scale factor
+                try:
+                    sample = float(sample) * scale
+                except:
+                    continue
+                # apply offset
+                try:
+                    sample += float(self.tree.set(key, 2))
+                except:
+                    pass
+                self.plot_lines[key][1].append(sample)
+
     def tk_tree_update(self):
-        # loop every 5 ms
-        self.root.after(5, self.tk_tree_update)
+        # loop update every 0.5s
+        self.root.after(500, self.tk_tree_update)
         for key, value in self.latest_data.items():
             # only update on new timestamp
             if self.timestamps[key] != self.latest_time:
@@ -196,7 +212,13 @@ parser = argparse.ArgumentParser(
     description="Display and plot JSON stream over serial."
 )
 parser.add_argument("-p", "--port", type=str, default="/dev/ttyUSB0")
-parser.add_argument("-b", "--baudrate", type=int, default=115200)
-parser.add_argument("-t", "--timespan", type=float, default=10)
+parser.add_argument("-b", "--baudrate", type=int, default=921600)
+parser.add_argument("-t", "--timespan", type=int, default=5000)
+parser.add_argument("-s", "--sample-interval", type=int, default=50)
 args = parser.parse_args()
-SerialJson(port=args.port, baudrate=args.baudrate, timespan=args.timespan).run()
+SerialJson(
+    port=args.port,
+    baudrate=args.baudrate,
+    timespan=args.timespan,
+    sample_interval=args.sample_interval,
+).run()

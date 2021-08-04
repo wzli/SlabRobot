@@ -404,7 +404,7 @@ static void monitor_loop(void* pvParameters) {
         }
     }
     // monitor loops at a lower frequency
-    for (app->status.tick = xTaskGetTickCount();; vTaskDelayUntil(&app->status.tick, 25)) {
+    for (app->status.tick = xTaskGetTickCount();; vTaskDelayUntil(&app->status.tick, 5)) {
 #if 0
         // print task status
         puts("Task Name       State   Pri     Stack   Num     CoreId");
