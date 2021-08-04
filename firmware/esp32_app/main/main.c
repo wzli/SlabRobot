@@ -213,7 +213,6 @@ static esp_err_t motors_error_request(uint32_t tick) {
     uint8_t cmd_id = tick & 1 ? ODRIVE_CMD_GET_MOTOR_ERROR : ODRIVE_CMD_GET_ENCODER_ERROR;
     return odrive_send_get_command(axis_id, cmd_id);
 }
-
 static esp_err_t motors_feedback_update(App* app) {
     AppError* app_error = (AppError*) &app->status.error;
     ODriveAxis* odrives = &app->status.motors->odrive;
@@ -237,7 +236,8 @@ static esp_err_t motors_feedback_update(App* app) {
         }
         // check for motor errors (excluding endstop reached)
         if ((odrives[i].updates.heartbeat &&
-                    (odrives[i].heartbeat.axis_error & ~ODRIVE_AXIS_ERROR_MIN_ENDSTOP_PRESSED &
+                    (odrives[i].heartbeat.axis_error & ~ODRIVE_AXIS_ERROR_ESTOP_REQUESTED &
+                            ~ODRIVE_AXIS_ERROR_MIN_ENDSTOP_PRESSED &
                             ~ODRIVE_AXIS_ERROR_MAX_ENDSTOP_PRESSED)) ||
                 (odrives[i].updates.motor_error && odrives[i].motor_error) ||
                 (odrives[i].updates.encoder_error && odrives[i].encoder_error)) {
@@ -260,6 +260,7 @@ static void motors_homing_request(const App* app) {
     for (int i = 0; i < 2; ++i) {
         // only send request if homing required and not already homing
         if (app->status.error & (1 << i) && app->status.motors[i].status.axis_state != state) {
+            ESP_ERROR_CHECK(odrive_send_command(i, ODRIVE_CMD_CLEAR_ERRORS, NULL, 0));
             ESP_ERROR_CHECK(
                     odrive_send_command(i, ODRIVE_CMD_SET_REQUESTED_STATE, &state, sizeof(state)));
         }
@@ -267,11 +268,15 @@ static void motors_homing_request(const App* app) {
 }
 
 static void motors_homing_complete_callback(
-        uint8_t axis_id, ODriveAxisState new_state, ODriveAxisState old_state, void* app) {
+        uint8_t axis_id, ODriveAxisState new_state, ODriveAxisState old_state, void* context) {
     assert(axis_id < 2);
+    App* app = (App*) context;
     // reset homing required error when state transitions from HOMING to IDLE
     if (old_state == ODRIVE_AXIS_STATE_HOMING && new_state == ODRIVE_AXIS_STATE_IDLE) {
-        ((App*) app)->status.error &= ~(1 << axis_id);
+        app->slab.input.leg_positions[axis_id] = -M_PI;
+        app->slab.motors[axis_id].input = (MotorInput){-M_PI, 0, 0, MOTOR_CONTROL_MODE_POSITION};
+        app->slab.motors[axis_id].estimate = (MotorEstimate){-M_PI, 0};
+        app->status.error &= ~(1 << axis_id);
     }
 }
 
@@ -331,7 +336,6 @@ static void gamepad_callback(void* pvParameters, ps3_t ps3_state, ps3_event_t ps
 }
 
 static void control_loop(void* pvParameters) {
-    static char text_buf[512];
     App* app = (App*) pvParameters;
     AppError* app_error = (AppError*) &app->status.error;
     uint32_t prev_app_error = app->status.error;
@@ -372,10 +376,16 @@ static void control_loop(void* pvParameters) {
         if (app->slab.gamepad.buttons & GAMEPAD_BUTTON_START) {
             motors_homing_request(app);
         }
-        // run control logic only when error-free
-        if (!app->status.error) {
+        // request estop if there is an error
+        if (app->status.error) {
+            for (int i = 0; i < N_MOTORS; ++i) {
+                if (app->status.motors[i].status.axis_state != ODRIVE_AXIS_STATE_IDLE) {
+                    ESP_ERROR_CHECK(odrive_send_command(i, ODRIVE_CMD_ESTOP, NULL, 0));
+                }
+            }
+        } else {
+            // run control logic only when error-free
             app->slab.tick = tick;
-
             // force balance controller disable
             app->slab.gamepad.buttons |= GAMEPAD_BUTTON_L1;
             slab_update(&app->slab);
@@ -395,10 +405,10 @@ static void monitor_loop(void* pvParameters) {
     // create new csv log file on sdcard if directory exists
     FIL* csv_log = NULL;
     if (app->dir_idx > -1) {
-        sprintf(text_buf, "slab%d/%s", app->dir_idx, "status.csv");
+        sprintf(text_buf, "slab%d/%s", app->dir_idx, "data.csv");
         // write csv header row if file was successfully created
         if ((csv_log = file_create(text_buf))) {
-            int len = AppStatus_to_csv_header(0, text_buf);
+            int len = App_to_csv_header(0, text_buf);
             ESP_ERROR_CHECK_WITHOUT_ABORT(f_write_line(csv_log, text_buf, len));
             ESP_ERROR_CHECK_WITHOUT_ABORT(f_sync(csv_log));
         }
@@ -425,7 +435,7 @@ static void monitor_loop(void* pvParameters) {
         puts(text_buf);
         // log app status as csv entry
         if (csv_log) {
-            int len = AppStatus_to_csv_entry(&app->status, text_buf);
+            int len = App_to_csv_entry(app, text_buf);
             ESP_ERROR_CHECK_WITHOUT_ABORT(f_write_line(csv_log, text_buf, len));
             ESP_ERROR_CHECK_WITHOUT_ABORT(f_sync(csv_log));
         }

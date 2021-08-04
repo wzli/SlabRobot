@@ -49,7 +49,7 @@ MXGEN(struct, SlabInput)
 
 #define TYPEDEF_SlabState(X, _)      \
     X(QuaternionF, orientation, )    \
-    X(Vector3F, verticies, [4])      \
+    _(Vector3F, verticies, [4])      \
     X(float, body_incline, )         \
     X(float, linear_velocity, )      \
     X(float, angular_velocity, )     \
@@ -63,7 +63,7 @@ MXGEN(struct, SlabState)
     X(MotorMsg, motors, [6]) \
     X(ImuMsg, imu, )         \
     X(GamepadMsg, gamepad, ) \
-    X(SlabConfig, config, )  \
+    _(SlabConfig, config, )  \
     X(SlabInput, input, )    \
     X(SlabState, state, )
 MXGEN(struct, Slab)

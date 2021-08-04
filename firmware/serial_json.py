@@ -160,7 +160,7 @@ class SerialJson:
                 self.ax.legend()
                 self.plot_lines[key] = (line, zeros)
         # rescale plot limits
-        if y_min != 0 or y_max != 0:
+        if y_min < y_max:
             self.ax.set_ylim(y_min * 1.01, y_max * 1.01)
 
     def sample_update(self):
