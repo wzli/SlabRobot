@@ -86,7 +86,10 @@ class SerialJson:
 
     def set_cell_value(self, event):
         # find selected tree item and column
-        item = self.tree.selection()[0]
+        try:
+            item = self.tree.selection()[0]
+        except IndexError:
+            return
         column = int(self.tree.identify_column(event.x)[1:]) - 1
         # disable edit for Message and Data fields
         if column <= 0 or self.tree.get_children(item):
