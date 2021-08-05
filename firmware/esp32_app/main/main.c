@@ -41,7 +41,7 @@
 #define GAMEPAD_COMMS_TIMEOUT_TICKS 50
 
 #define N_MOTORS 2
-static const float MOTOR_GEAR_RATIOS[N_MOTORS] = {33, 33};
+static const float MOTOR_GEAR_RATIOS[N_MOTORS] = {-33, 33};
 
 static const SlabConfig SLAB_CONFIG = {
         .max_wheel_speed = 40.0f,   // rads/s
@@ -212,8 +212,8 @@ static void ps3_gamepad_led_update(AppError app_error) {
     if (app_error.code > 3) {
         cmd.rumble_left_intensity = 255;
         cmd.rumble_right_intensity = 255;
-        cmd.rumble_left_duration = 30;
-        cmd.rumble_right_duration = 30;
+        cmd.rumble_left_duration = 50;
+        cmd.rumble_right_duration = 50;
     }
     ps3Cmd(cmd);
 }
@@ -383,20 +383,21 @@ static void control_loop(void* pvParameters) {
         else if (app->status.error.code != prev_error_code) {
             ps3_gamepad_led_update(app->status.error);
         }
-        // request estop if there is an error
-        if (app->status.error.code > 0xF) {
-            for (int i = 0; i < N_MOTORS; ++i) {
-                if (app->status.motors[i].status.axis_state != ODRIVE_AXIS_STATE_IDLE) {
-                    ESP_ERROR_CHECK(odrive_send_command(i, ODRIVE_CMD_ESTOP, NULL, 0));
-                }
-            }
-        }
         // press start button to send homing request
         if (app->slab.gamepad.buttons & GAMEPAD_BUTTON_START) {
             motors_homing_request(app);
         }
+        // request estop if there is an error
+        if (app->status.error.code) {
+            for (int i = 0; i < N_MOTORS; ++i) {
+                if (app->status.motors[i].status.axis_state ==
+                        ODRIVE_AXIS_STATE_CLOSED_LOOP_CONTROL) {
+                    ESP_ERROR_CHECK(odrive_send_command(i, ODRIVE_CMD_ESTOP, NULL, 0));
+                }
+            }
+        }
         // run control logic only when error-free
-        if (!app->status.error.code) {
+        else {
             app->slab.tick = tick;
             // force balance controller disable
             app->slab.gamepad.buttons |= GAMEPAD_BUTTON_L1;
