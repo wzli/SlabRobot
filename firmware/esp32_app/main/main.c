@@ -410,17 +410,9 @@ static void control_loop(void* pvParameters) {
         if (!app->status.error.code) {
             app->slab.tick = tick;
             // force balance controller disable
-            // app->slab.gamepad.buttons |= GAMEPAD_BUTTON_L1;
-            // slab_update(&app->slab);
-            // app->slab.gamepad.buttons &= ~GAMEPAD_BUTTON_L1;
-            if (app->slab.gamepad.buttons & GAMEPAD_BUTTON_L1) {
-                app->slab.motors[0].input.position += 0.01;
-                app->slab.motors[1].input.position += 0.01;
-            }
-            if (app->slab.gamepad.buttons & GAMEPAD_BUTTON_R1) {
-                app->slab.motors[0].input.position -= 0.01;
-                app->slab.motors[1].input.position -= 0.01;
-            }
+            app->slab.gamepad.buttons |= GAMEPAD_BUTTON_L1;
+            slab_update(&app->slab);
+            app->slab.gamepad.buttons &= ~GAMEPAD_BUTTON_L1;
             motors_input_update(app);
         }
     }

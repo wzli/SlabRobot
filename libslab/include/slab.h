@@ -44,7 +44,8 @@ MXGEN(struct, SlabConfig)
     X(float, linear_velocity, )  \
     X(float, angular_velocity, ) \
     X(float, leg_positions, [2]) \
-    X(float, body_incline, )
+    X(float, body_incline, )     \
+    X(bool, balance_enable, )
 MXGEN(struct, SlabInput)
 
 #define TYPEDEF_SlabState(X, _)      \

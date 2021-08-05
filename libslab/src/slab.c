@@ -43,9 +43,7 @@ static void slab_gamepad_input_update(Slab* slab) {
         axis[Y] *= trigger;
     }
     // disable balance control with L1
-    if (slab->gamepad.buttons & GAMEPAD_BUTTON_L1) {
-        slab->state.balance_active = false;
-    }
+    slab->input.balance_enable = ~slab->gamepad.buttons & GAMEPAD_BUTTON_L1;
     // scale velocity input to max wheel speed
     float speed_scale = 0.5f * slab->config.wheel_diameter * slab->config.max_wheel_speed;
     if (slab->state.balance_active) {
@@ -214,7 +212,8 @@ static void slab_state_update(Slab* slab) {
         slab->state.linear_velocity *= 0.5f * slab->config.wheel_diameter / ground_wheels;
     }
     // turn on balance control when only one leg has ground contact
-    bool balance_active = slab->state.ground_contacts == 1 || slab->state.ground_contacts == 2;
+    bool balance_active = slab->input.balance_enable &&
+                          (slab->state.ground_contacts == 1 || slab->state.ground_contacts == 2);
     // reset control states on transition
     if (slab->state.balance_active != balance_active) {
         slab->state.balance_active = balance_active;
