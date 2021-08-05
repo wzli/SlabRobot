@@ -48,7 +48,8 @@ The controls are:
   - D-pad scaled by L-trigger maps to left stick controls.
 - Right stick controls legs.
   - X-axis controls rotation of both legs in the same direction.
-  - Y-axis controls rotation of both legs in different directions.
+  - Y-axis controls rotation of both legs in different directions (when not balancing).
+  - Y-axis controls body incline (when balancing).
   - Diagonal axis controls individual legs.
   - Buttons scaled by R-trigger maps to right stick controls.
 - Holding R button maps right stick to leg position presets.

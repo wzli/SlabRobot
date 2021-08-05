@@ -61,28 +61,50 @@ static void slab_gamepad_input_update(Slab* slab) {
     // leg position control logic
     const float leg_speed = 0.02f;
     for (int i = 0, sign = -1; i < 2; ++i, sign *= -1) {
-        bool only_contact = slab->state.ground_contacts == i + 1;
-        if (!(slab->gamepad.buttons & GAMEPAD_BUTTON_R1)) {
-            slab->input.body_incline -=
-                    0.5f * leg_speed * legs_input[Y] * SGN(slab->state.body_incline);
-            int dir = slab->state.balance_active ? (only_contact ? 2 : -1) : 1;
-            slab->input.leg_positions[i] +=
-                    leg_speed * (legs_input[X] * (1 - only_contact) + legs_input[Y] * sign * dir);
-            slab->input.leg_positions[i] = CLAMP(slab->input.leg_positions[i],
-                    slab->config.min_leg_position, slab->config.max_leg_position);
-        } else if (!only_contact) {
+        // holding R1 targets preset angles
+        if (slab->gamepad.buttons & GAMEPAD_BUTTON_R1) {
+            // exclude the leg that the robot is balancing on
+            if (slab->state.balance_active && slab->state.ground_contacts == (1 << i)) {
+                continue;
+            }
+            // if input lies in horizontal vs vertical regions
             if (SQR(legs_input[X]) > SQR(legs_input[Y])) {
-                LOW_PASS_FILTER(slab->input.body_incline, SGN(slab->input.body_incline) * M_PI_2,
-                        leg_speed * ABS(legs_input[X]));
+                // target PI angle presets (fold down)
                 LOW_PASS_FILTER(slab->input.leg_positions[i], SGN(legs_input[X]) * M_PI,
                         leg_speed * ABS(legs_input[X]));
+                // target vertical body incline (only effective when balancing)
+                LOW_PASS_FILTER(slab->input.body_incline, SGN(slab->input.body_incline) * M_PI_2,
+                        leg_speed * ABS(legs_input[X]));
             } else {
+                // target PI/2 angle presets (right angle)
+                LOW_PASS_FILTER(slab->input.leg_positions[i], sign * SGN(legs_input[Y]) * M_PI_2,
+                        leg_speed * ABS(legs_input[Y]));
+                // target horizontal body incline (only effective when balancing)
                 LOW_PASS_FILTER(slab->input.body_incline,
                         (SGN(slab->input.body_incline) + sign * SGN(legs_input[Y])) * M_PI_2,
                         0.5f * leg_speed * ABS(legs_input[Y]));
-                LOW_PASS_FILTER(slab->input.leg_positions[i], sign * SGN(legs_input[Y]) * M_PI_2,
-                        leg_speed * ABS(legs_input[Y]));
             }
+        }
+        // R1 released for direct control
+        else {
+            // map X to arm and Y to incline during balance
+            if (slab->state.balance_active) {
+                // remap controls of balancing leg to body incline
+                if (slab->state.ground_contacts == (1 << i)) {
+                    slab->input.body_incline -= 0.5f * leg_speed * legs_input[Y];
+                    slab->input.body_incline = CLAMP(slab->input.body_incline, -M_PI, M_PI);
+                    // compensate balancing leg toward the direction of the incline movement
+                    slab->input.leg_positions[i] += leg_speed * legs_input[Y];
+                } else {
+                    slab->input.leg_positions[i] += leg_speed * legs_input[X];
+                }
+            } else {
+                // map legs movement to diagonal axis
+                slab->input.leg_positions[i] += leg_speed * (legs_input[X] + legs_input[Y] * sign);
+            }
+            // clamp leg positions
+            slab->input.leg_positions[i] = CLAMP(slab->input.leg_positions[i],
+                    slab->config.min_leg_position, slab->config.max_leg_position);
         }
     }
 }

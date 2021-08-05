@@ -8,10 +8,10 @@ target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE -fPIC -Wall -Wextra -Wpedan
 
 file(GLOB headers include/*.h)
 add_custom_command(
-  OUTPUT slab_ctypes.py
+  OUTPUT lib${CMAKE_PROJECT_NAME}_py.py
   COMMAND ctypesgen -l lib${CMAKE_PROJECT_NAME}.so --output=lib${CMAKE_PROJECT_NAME}_py.py ${headers} 2> ctypesgen.err
   DEPENDS ${headers}
   COMMENT "Generated python message definitions"
   VERBATIM
 )
-add_custom_target(slab_ctypes ALL DEPENDS slab_ctypes.py)
+add_custom_target(lib${CMAKE_PROJECT_NAME}_py ALL DEPENDS lib${CMAKE_PROJECT_NAME}_py.py)
