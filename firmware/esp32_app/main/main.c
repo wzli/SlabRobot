@@ -307,8 +307,8 @@ static void motors_input_update(const App* app) {
         switch (motor->input.control_mode) {
             case MOTOR_CONTROL_MODE_POSITION: {
                 const ODriveInputPosition input_pos = {
-                        (motor->input.position + M_PI) * MOTOR_GEAR_RATIOS[i] / 2 * M_PI,
-                        1000 * motor->input.velocity * MOTOR_GEAR_RATIOS[i] / 2 * M_PI,
+                        (motor->input.position + M_PI) * MOTOR_GEAR_RATIOS[i] / (2 * M_PI),
+                        1000 * motor->input.velocity * MOTOR_GEAR_RATIOS[i] / (2 * M_PI),
                         1000 * motor->input.torque / MOTOR_GEAR_RATIOS[i]};
                 ESP_ERROR_CHECK(odrive_send_command(
                         i, ODRIVE_CMD_SET_INPUT_POS, &input_pos, sizeof(input_pos)));
@@ -383,12 +383,8 @@ static void control_loop(void* pvParameters) {
         else if (app->status.error.code != prev_error_code) {
             ps3_gamepad_led_update(app->status.error);
         }
-        // press start button to send homing request
-        if (app->slab.gamepad.buttons & GAMEPAD_BUTTON_START) {
-            motors_homing_request(app);
-        }
         // request estop if there is an error
-        if (app->status.error.code) {
+        if (app->status.error.code > 0xF) {
             for (int i = 0; i < N_MOTORS; ++i) {
                 if (app->status.motors[i].status.axis_state ==
                         ODRIVE_AXIS_STATE_CLOSED_LOOP_CONTROL) {
@@ -396,13 +392,25 @@ static void control_loop(void* pvParameters) {
                 }
             }
         }
+        // press start button to send homing request
+        if (app->slab.gamepad.buttons & GAMEPAD_BUTTON_START) {
+            motors_homing_request(app);
+        }
         // run control logic only when error-free
-        else {
+        if (!app->status.error.code) {
             app->slab.tick = tick;
             // force balance controller disable
-            app->slab.gamepad.buttons |= GAMEPAD_BUTTON_L1;
-            slab_update(&app->slab);
-            app->slab.gamepad.buttons &= ~GAMEPAD_BUTTON_L1;
+            // app->slab.gamepad.buttons |= GAMEPAD_BUTTON_L1;
+            // slab_update(&app->slab);
+            // app->slab.gamepad.buttons &= ~GAMEPAD_BUTTON_L1;
+            if (app->slab.gamepad.buttons & GAMEPAD_BUTTON_R1) {
+                app->slab.motors[0].input.position += 0.001;
+                app->slab.motors[1].input.position += 0.001;
+            }
+            if (app->slab.gamepad.buttons & GAMEPAD_BUTTON_L1) {
+                app->slab.motors[0].input.position -= 0.001;
+                app->slab.motors[1].input.position -= 0.001;
+            }
             motors_input_update(app);
         }
     }
