@@ -1,6 +1,5 @@
-numpy
-matplotlib
 tk
+matplotlib
 pybullet
 ctypes
 ctypesgen

@@ -247,9 +247,10 @@ static void motors_homing_complete_callback(
 static void motors_init(App* app) {
     for (int i = 0; i < N_MOTORS; ++i) {
         // start motors in idle state
-        static const uint32_t state = ODRIVE_AXIS_STATE_CLOSED_LOOP_CONTROL;
+        static const uint32_t state = ODRIVE_AXIS_STATE_IDLE;
         ESP_ERROR_CHECK(
                 odrive_send_command(i, ODRIVE_CMD_SET_REQUESTED_STATE, &state, sizeof(state)));
+        // clear errors
         ESP_ERROR_CHECK(odrive_send_command(i, ODRIVE_CMD_CLEAR_ERRORS, NULL, 0));
         // homing is required for legs
         if (i < 2) {
