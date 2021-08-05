@@ -212,8 +212,8 @@ static void ps3_gamepad_led_update(AppError app_error) {
     if (app_error.code > 3) {
         cmd.rumble_left_intensity = 255;
         cmd.rumble_right_intensity = 255;
-        cmd.rumble_left_duration = 10;
-        cmd.rumble_right_duration = 10;
+        cmd.rumble_left_duration = 30;
+        cmd.rumble_right_duration = 30;
     }
     ps3Cmd(cmd);
 }
@@ -271,7 +271,6 @@ static void motors_homing_request(const App* app) {
         // only send request if homing required and not already homing
         if (app->status.error.code & (1 << i) &&
                 app->status.motors[i].status.axis_state != state) {
-            ESP_ERROR_CHECK(odrive_send_command(i, ODRIVE_CMD_CLEAR_ERRORS, NULL, 0));
             ESP_ERROR_CHECK(
                     odrive_send_command(i, ODRIVE_CMD_SET_REQUESTED_STATE, &state, sizeof(state)));
         }
@@ -349,17 +348,18 @@ static void gamepad_callback(void* pvParameters, ps3_t ps3_state, ps3_event_t ps
 
 static void control_loop(void* pvParameters) {
     App* app = (App*) pvParameters;
-    uint32_t prev_error_code = app->status.error.code;
     // require homing for both leg motors on startup
     for (int i = 0; i < 2; ++i) {
         app->status.error.code |= 1 << i;
         app->status.motors[i].odrive.state_transition_callback = motors_homing_complete_callback;
         app->status.motors[i].odrive.state_transition_context = app;
+        ESP_ERROR_CHECK(odrive_send_command(i, ODRIVE_CMD_CLEAR_ERRORS, NULL, 0));
     }
     // control loop
     // match IMU DMP output rate of 100Hz
     // ODrive encoder updates also configured to 100Hz
     for (TickType_t tick = xTaskGetTickCount();; vTaskDelayUntil(&tick, 1)) {
+        uint32_t prev_error_code = app->status.error.code;
         // fetch motor updates
         ESP_ERROR_CHECK(motors_error_request(tick));
         ESP_ERROR_CHECK(motors_feedback_update(app));
