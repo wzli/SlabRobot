@@ -218,12 +218,86 @@ static void ps3_gamepad_led_update(AppError app_error) {
     ps3Cmd(cmd);
 }
 
-static esp_err_t motors_error_request(uint32_t tick) {
-    // send a different error request command every tick
-    uint8_t axis_id = (tick / 2) % N_MOTORS;
-    uint8_t cmd_id = tick & 1 ? ODRIVE_CMD_GET_MOTOR_ERROR : ODRIVE_CMD_GET_ENCODER_ERROR;
-    return odrive_send_get_command(axis_id, cmd_id);
+static void motors_homing_request(const App* app) {
+    static const uint32_t state = ODRIVE_AXIS_STATE_HOMING;
+    for (int i = 0; i < 2; ++i) {
+        // only send request if homing required and not already homing
+        if (app->status.error.code & (1 << i) &&
+                app->status.motors[i].status.axis_state != state) {
+            ESP_ERROR_CHECK(
+                    odrive_send_command(i, ODRIVE_CMD_SET_REQUESTED_STATE, &state, sizeof(state)));
+        }
+    }
 }
+
+static void motors_homing_complete_callback(
+        uint8_t axis_id, ODriveAxisState new_state, ODriveAxisState old_state, void* context) {
+    assert(axis_id < 2);
+    App* app = (App*) context;
+    // reset homing required error when state transitions from HOMING to IDLE
+    if (old_state == ODRIVE_AXIS_STATE_HOMING && new_state == ODRIVE_AXIS_STATE_IDLE) {
+        app->status.error.code &= ~(1 << axis_id);
+        app->slab.input.leg_positions[axis_id] = -M_PI;
+        app->slab.motors[axis_id].input = (MotorInput){-M_PI, 0, 0, MOTOR_CONTROL_MODE_POSITION};
+        app->slab.motors[axis_id].estimate = (MotorEstimate){-M_PI, 0};
+        ps3_gamepad_led_update(app->status.error);
+    }
+}
+
+static void motors_init(App* app) {
+    for (int i = 0; i < N_MOTORS; ++i) {
+        // start motors in idle state
+        static const uint32_t state = ODRIVE_AXIS_STATE_CLOSED_LOOP_CONTROL;
+        ESP_ERROR_CHECK(
+                odrive_send_command(i, ODRIVE_CMD_SET_REQUESTED_STATE, &state, sizeof(state)));
+        ESP_ERROR_CHECK(odrive_send_command(i, ODRIVE_CMD_CLEAR_ERRORS, NULL, 0));
+        // homing is required for legs
+        if (i < 2) {
+            app->status.error.code |= 1 << i;
+            app->status.motors[i].odrive.state_transition_callback =
+                    motors_homing_complete_callback;
+            app->status.motors[i].odrive.state_transition_context = app;
+        }
+    }
+}
+
+static void motors_input_update(const App* app) {
+    for (int i = 0; i < N_MOTORS; ++i) {
+        const ODriveStatus* odrive = &app->status.motors[i].status;
+        const MotorMsg* motor = &app->slab.motors[i];
+        // request closed loop control state if not already
+        static const uint32_t state = ODRIVE_AXIS_STATE_CLOSED_LOOP_CONTROL;
+        if (odrive->axis_state != state) {
+            ESP_ERROR_CHECK(
+                    odrive_send_command(i, ODRIVE_CMD_SET_REQUESTED_STATE, &state, sizeof(state)));
+        }
+        // send different motor commands depending on desired control mode
+        // assume that the odrive is preconfigured to the correct mode
+        // scale by gear ratio then change radians to cycles
+        switch (motor->input.control_mode) {
+            case MOTOR_CONTROL_MODE_POSITION: {
+                const ODriveInputPosition input_pos = {
+                        (motor->input.position + M_PI) * MOTOR_GEAR_RATIOS[i] / (2 * M_PI),
+                        1000 * motor->input.velocity * MOTOR_GEAR_RATIOS[i] / (2 * M_PI),
+                        1000 * motor->input.torque / MOTOR_GEAR_RATIOS[i]};
+                ESP_ERROR_CHECK(odrive_send_command(
+                        i, ODRIVE_CMD_SET_INPUT_POS, &input_pos, sizeof(input_pos)));
+                break;
+            }
+            case MOTOR_CONTROL_MODE_VELOCITY: {
+                const ODriveInputVelocity input_vel = {
+                        motor->input.velocity * MOTOR_GEAR_RATIOS[i] / 2 * M_PI,
+                        motor->input.torque / MOTOR_GEAR_RATIOS[i]};
+                ESP_ERROR_CHECK(odrive_send_command(
+                        i, ODRIVE_CMD_SET_INPUT_VEL, &input_vel, sizeof(input_vel)));
+                break;
+            }
+            default:
+                assert(0 && "motor control mode not implemented");
+        }
+    }
+}
+
 static esp_err_t motors_feedback_update(App* app) {
     ODriveAxis* odrives = &app->status.motors->odrive;
     // clear updates flags
@@ -265,67 +339,11 @@ static esp_err_t motors_feedback_update(App* app) {
     return rx_error;
 }
 
-static void motors_homing_request(const App* app) {
-    static const uint32_t state = ODRIVE_AXIS_STATE_HOMING;
-    for (int i = 0; i < 2; ++i) {
-        // only send request if homing required and not already homing
-        if (app->status.error.code & (1 << i) &&
-                app->status.motors[i].status.axis_state != state) {
-            ESP_ERROR_CHECK(
-                    odrive_send_command(i, ODRIVE_CMD_SET_REQUESTED_STATE, &state, sizeof(state)));
-        }
-    }
-}
-
-static void motors_homing_complete_callback(
-        uint8_t axis_id, ODriveAxisState new_state, ODriveAxisState old_state, void* context) {
-    assert(axis_id < 2);
-    App* app = (App*) context;
-    // reset homing required error when state transitions from HOMING to IDLE
-    if (old_state == ODRIVE_AXIS_STATE_HOMING && new_state == ODRIVE_AXIS_STATE_IDLE) {
-        app->status.error.code &= ~(1 << axis_id);
-        app->slab.input.leg_positions[axis_id] = -M_PI;
-        app->slab.motors[axis_id].input = (MotorInput){-M_PI, 0, 0, MOTOR_CONTROL_MODE_POSITION};
-        app->slab.motors[axis_id].estimate = (MotorEstimate){-M_PI, 0};
-        ps3_gamepad_led_update(app->status.error);
-    }
-}
-
-static void motors_input_update(const App* app) {
-    for (int i = 0; i < N_MOTORS; ++i) {
-        const ODriveStatus* odrive = &app->status.motors[i].status;
-        const MotorMsg* motor = &app->slab.motors[i];
-        // request closed loop control state if not already
-        static const uint32_t state = ODRIVE_AXIS_STATE_CLOSED_LOOP_CONTROL;
-        if (odrive->axis_state != state) {
-            ESP_ERROR_CHECK(
-                    odrive_send_command(i, ODRIVE_CMD_SET_REQUESTED_STATE, &state, sizeof(state)));
-        }
-        // send different motor commands depending on desired control mode
-        // assume that the odrive is preconfigured to the correct mode
-        // scale by gear ratio then change radians to cycles
-        switch (motor->input.control_mode) {
-            case MOTOR_CONTROL_MODE_POSITION: {
-                const ODriveInputPosition input_pos = {
-                        (motor->input.position + M_PI) * MOTOR_GEAR_RATIOS[i] / (2 * M_PI),
-                        1000 * motor->input.velocity * MOTOR_GEAR_RATIOS[i] / (2 * M_PI),
-                        1000 * motor->input.torque / MOTOR_GEAR_RATIOS[i]};
-                ESP_ERROR_CHECK(odrive_send_command(
-                        i, ODRIVE_CMD_SET_INPUT_POS, &input_pos, sizeof(input_pos)));
-                break;
-            }
-            case MOTOR_CONTROL_MODE_VELOCITY: {
-                const ODriveInputVelocity input_vel = {
-                        motor->input.velocity * MOTOR_GEAR_RATIOS[i] / 2 * M_PI,
-                        motor->input.torque / MOTOR_GEAR_RATIOS[i]};
-                ESP_ERROR_CHECK(odrive_send_command(
-                        i, ODRIVE_CMD_SET_INPUT_VEL, &input_vel, sizeof(input_vel)));
-                break;
-            }
-            default:
-                assert(0 && "motor control mode not implemented");
-        }
-    }
+static esp_err_t motors_error_request(uint32_t tick) {
+    // send a different error request command every tick
+    uint8_t axis_id = (tick / 2) % N_MOTORS;
+    uint8_t cmd_id = tick & 1 ? ODRIVE_CMD_GET_MOTOR_ERROR : ODRIVE_CMD_GET_ENCODER_ERROR;
+    return odrive_send_get_command(axis_id, cmd_id);
 }
 
 //------------------------------------------------------------------------------
@@ -348,14 +366,6 @@ static void gamepad_callback(void* pvParameters, ps3_t ps3_state, ps3_event_t ps
 
 static void control_loop(void* pvParameters) {
     App* app = (App*) pvParameters;
-    // require homing for both leg motors on startup
-    for (int i = 0; i < 2; ++i) {
-        app->status.error.code |= 1 << i;
-        app->status.motors[i].odrive.state_transition_callback = motors_homing_complete_callback;
-        app->status.motors[i].odrive.state_transition_context = app;
-        ESP_ERROR_CHECK(odrive_send_command(i, ODRIVE_CMD_CLEAR_ERRORS, NULL, 0));
-    }
-    // control loop
     // match IMU DMP output rate of 100Hz
     // ODrive encoder updates also configured to 100Hz
     for (TickType_t tick = xTaskGetTickCount();; vTaskDelayUntil(&tick, 1)) {
@@ -400,17 +410,9 @@ static void control_loop(void* pvParameters) {
         if (!app->status.error.code) {
             app->slab.tick = tick;
             // force balance controller disable
-            // app->slab.gamepad.buttons |= GAMEPAD_BUTTON_L1;
-            // slab_update(&app->slab);
-            // app->slab.gamepad.buttons &= ~GAMEPAD_BUTTON_L1;
-            if (app->slab.gamepad.buttons & GAMEPAD_BUTTON_R1) {
-                app->slab.motors[0].input.position += 0.001;
-                app->slab.motors[1].input.position += 0.001;
-            }
-            if (app->slab.gamepad.buttons & GAMEPAD_BUTTON_L1) {
-                app->slab.motors[0].input.position -= 0.001;
-                app->slab.motors[1].input.position -= 0.001;
-            }
+            app->slab.gamepad.buttons |= GAMEPAD_BUTTON_L1;
+            slab_update(&app->slab);
+            app->slab.gamepad.buttons &= ~GAMEPAD_BUTTON_L1;
             motors_input_update(app);
         }
     }
@@ -521,6 +523,7 @@ void app_main(void) {
     static App app = {0};
     app.slab.config = SLAB_CONFIG;
     app.imu = imu_create();
+    motors_init(&app);
     ps3SetEventObjectCallback(&app, gamepad_callback);
     esp_log_level_set("PS3_L2CAP", ESP_LOG_WARN);
     app.dir_idx = dir_create("slab");
