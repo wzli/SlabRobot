@@ -2,7 +2,7 @@
 
 import pybullet as p
 import pybullet_data
-import numpy as np
+import math
 import inputs, os, io, fcntl
 
 import tkinter as tk
@@ -90,7 +90,6 @@ class Simulation:
         p.loadURDF("plane.urdf")
         p.setGravity(0, 0, -9.8)
         self.steps = 0
-        self.prev_base_velocity = np.array([0, 0, 0])
         # load robot urdf
         self.robot = p.loadURDF("urdf/robot.urdf")
         self.joints = {
@@ -110,9 +109,9 @@ class Simulation:
         self.slab = libslab_py.Slab()
         # start with legs folded
         for i, leg in enumerate(self.legs):
-            p.resetJointState(self.robot, leg, -np.pi, 0)
-            self.slab.input.leg_positions[i] = -np.pi
-            self.slab.motors[i].input.position = -np.pi
+            p.resetJointState(self.robot, leg, -math.pi, 0)
+            self.slab.input.leg_positions[i] = -math.pi
+            self.slab.motors[i].input.position = -math.pi
         """
         # stand up orientation
         pos = (0, 0, 1.2)  # x y z
@@ -125,8 +124,8 @@ class Simulation:
         self.slab.config.wheel_distance = 0.4  # m
         self.slab.config.body_length = 0.4  # m
         self.slab.config.leg_length = 0.35  # m
-        self.slab.config.max_leg_position = np.pi  # rad
-        self.slab.config.min_leg_position = -np.pi  # rad
+        self.slab.config.max_leg_position = math.pi  # rad
+        self.slab.config.min_leg_position = -math.pi  # rad
         self.slab.config.imu_axis_remap[
             libslab_py.AXIS_REMAP_X
         ] = libslab_py.AXIS_REMAP_NEG_X
@@ -185,14 +184,6 @@ class Simulation:
         self.slab.imu.linear_acceleration.x = lin_vel[0]
         self.slab.imu.linear_acceleration.y = lin_vel[1]
         self.slab.imu.linear_acceleration.z = lin_vel[2]
-        """
-        lin_vel = np.array(lin_vel)
-        lin_acc = (lin_vel - self.prev_base_velocity) / self.step_divider
-        self.prev_base_velocity = lin_vel
-        self.slab.imu.linear_acceleration.x = lin_acc[0]
-        self.slab.imu.angular_velocity.y = lin_acc[1]
-        self.slab.imu.angular_velocity.z = lin_acc[2]
-        """
 
     def update_motors(self):
         # update motor feedback
