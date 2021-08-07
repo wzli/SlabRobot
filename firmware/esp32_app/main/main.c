@@ -244,20 +244,22 @@ static void motors_homing_complete_callback(
     }
 }
 
-static void motors_init(App* app) {
+static void motors_clear_errors() {
     for (int i = 0; i < N_MOTORS; ++i) {
-        // clear errors
         ESP_ERROR_CHECK(odrive_send_command(i, ODRIVE_CMD_CLEAR_ERRORS, NULL, 0));
-        // homing is required for legs
-        if (i < 2) {
-            app->status.error.code |= 1 << i;
-            app->status.motors[i].odrive.state_transition_callback =
-                    motors_homing_complete_callback;
-            app->status.motors[i].odrive.state_transition_context = app;
-        }
     }
+}
+
+static void motors_init(App* app) {
+    motors_clear_errors();
     // wait for errors to clear
     vTaskDelay(1);
+    // homing is required for legs only
+    for (int i = 0; i < 2; ++i) {
+        app->status.error.code |= 1 << i;
+        app->status.motors[i].odrive.state_transition_callback = motors_homing_complete_callback;
+        app->status.motors[i].odrive.state_transition_context = app;
+    }
 }
 
 static void motors_input_update(const App* app) {
@@ -405,6 +407,10 @@ static void control_loop(void* pvParameters) {
         // press start button to send homing request
         if (app->slab.gamepad.buttons & GAMEPAD_BUTTON_START) {
             motors_homing_request(app);
+        }
+        // press select button to clear motor errors
+        if (app->slab.gamepad.buttons & GAMEPAD_BUTTON_SELECT) {
+            motors_clear_errors();
         }
         // run control logic only when error-free
         if (!app->status.error.code) {
