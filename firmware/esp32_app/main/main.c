@@ -68,6 +68,7 @@ static const SlabConfig SLAB_CONFIG = {
 typedef struct {
     bool homing_required_front : 1;
     bool homing_required_back : 1;
+    bool can_error : 1;
     bool motor_error : 1;
     bool motor_comms_timeout : 1;
     bool imu_comms_timeout : 1;
@@ -157,6 +158,10 @@ MXGEN(struct, App)
 //------------------------------------------------------------------------------
 // helper functions
 
+static void can_error_check(App* app, esp_err_t error) {
+    app->status.error.flags.can_error |= ESP_ERROR_CHECK_WITHOUT_ABORT(error);
+}
+
 static int error_counter_update(ErrorCounter* counter, int error_count) {
     counter->total += error_count;
     return counter->running = error_count ? counter->running + error_count : 0;
@@ -221,13 +226,13 @@ static void ps3_gamepad_led_update(AppError app_error) {
     ps3Cmd(cmd);
 }
 
-static void motors_homing_request(const App* app) {
+static void motors_homing_request(App* app) {
     for (int i = 0; i < 2; ++i) {
         // only send request if homing required and not already homing
         static const uint32_t state = ODRIVE_AXIS_STATE_HOMING;
         if (app->status.error.code & (1 << i) &&
                 app->status.motors[i].status.axis_state != state) {
-            ESP_ERROR_CHECK(
+            can_error_check(app,
                     odrive_send_command(i, ODRIVE_CMD_SET_REQUESTED_STATE, &state, sizeof(state)));
         }
     }
@@ -266,7 +271,7 @@ static void motors_homing_timeout_callback(TimerHandle_t timer) {
     }
 }
 
-static void motors_input_update(const App* app) {
+static void motors_input_update(App* app) {
     for (int i = 0; i < N_MOTORS; ++i) {
         const ODriveStatus* odrive = &app->status.motors[i].status;
         const MotorMsg* motor = &app->slab.motors[i];
@@ -277,12 +282,12 @@ static void motors_input_update(const App* app) {
                 (odrive->axis_error == ODRIVE_AXIS_ERROR_MAX_ENDSTOP_PRESSED &&
                         motor->input.position <= motor->estimate.position &&
                         motor->input.velocity <= 0 && motor->input.torque <= 0)) {
-            ESP_ERROR_CHECK(odrive_send_command(i, ODRIVE_CMD_CLEAR_ERRORS, NULL, 0));
+            can_error_check(app, odrive_send_command(i, ODRIVE_CMD_CLEAR_ERRORS, NULL, 0));
         }
         // request closed loop control state if not already
         static const uint32_t state = ODRIVE_AXIS_STATE_CLOSED_LOOP_CONTROL;
         if (odrive->axis_state != state) {
-            ESP_ERROR_CHECK(
+            can_error_check(app,
                     odrive_send_command(i, ODRIVE_CMD_SET_REQUESTED_STATE, &state, sizeof(state)));
         }
         // send different motor commands depending on desired control mode
@@ -294,16 +299,16 @@ static void motors_input_update(const App* app) {
                         (motor->input.position + M_PI) * MOTOR_GEAR_RATIOS[i] / (2 * M_PI),
                         1000 * motor->input.velocity * MOTOR_GEAR_RATIOS[i] / (2 * M_PI),
                         1000 * motor->input.torque / MOTOR_GEAR_RATIOS[i]};
-                ESP_ERROR_CHECK(odrive_send_command(
-                        i, ODRIVE_CMD_SET_INPUT_POS, &input_pos, sizeof(input_pos)));
+                can_error_check(app, odrive_send_command(i, ODRIVE_CMD_SET_INPUT_POS, &input_pos,
+                                             sizeof(input_pos)));
                 break;
             }
             case MOTOR_CONTROL_MODE_VELOCITY: {
                 const ODriveInputVelocity input_vel = {
                         motor->input.velocity * MOTOR_GEAR_RATIOS[i] / (2 * M_PI),
                         motor->input.torque / MOTOR_GEAR_RATIOS[i]};
-                ESP_ERROR_CHECK(odrive_send_command(
-                        i, ODRIVE_CMD_SET_INPUT_VEL, &input_vel, sizeof(input_vel)));
+                can_error_check(app, odrive_send_command(i, ODRIVE_CMD_SET_INPUT_VEL, &input_vel,
+                                             sizeof(input_vel)));
                 break;
             }
             default:
@@ -359,14 +364,14 @@ static esp_err_t motors_error_request(uint32_t tick) {
     return odrive_send_get_command(axis_id, cmd_id);
 }
 
-static void motors_clear_errors() {
+static void motors_clear_errors(App* app) {
     for (int i = 0; i < N_MOTORS; ++i) {
-        ESP_ERROR_CHECK(odrive_send_command(i, ODRIVE_CMD_CLEAR_ERRORS, NULL, 0));
+        can_error_check(app, odrive_send_command(i, ODRIVE_CMD_CLEAR_ERRORS, NULL, 0));
     }
 }
 
 static void motors_init(App* app) {
-    motors_clear_errors();
+    motors_clear_errors(app);
     // wait for errors to clear
     vTaskDelay(1);
     // homing is required for legs only
@@ -406,8 +411,8 @@ static void control_loop(void* pvParameters) {
     for (TickType_t tick = xTaskGetTickCount();; vTaskDelayUntil(&tick, 1)) {
         uint32_t prev_error_code = app->status.error.code;
         // fetch motor updates
-        ESP_ERROR_CHECK(motors_error_request(tick));
-        ESP_ERROR_CHECK(motors_feedback_update(app));
+        can_error_check(app, motors_error_request(tick));
+        can_error_check(app, motors_feedback_update(app));
         // fetch imu updates
         app->status.error.flags.imu_comms_timeout =
                 error_counter_update(&app->status.imu_comms_missed,
@@ -429,13 +434,13 @@ static void control_loop(void* pvParameters) {
             ps3_gamepad_led_update(app->status.error);
         }
         // request idle state if there is an error
-        if (app->status.error.code > 0xF) {
+        if (app->status.error.code > 0x1F) {
             for (int i = 0; i < N_MOTORS; ++i) {
                 if (app->status.motors[i].status.axis_state ==
                         ODRIVE_AXIS_STATE_CLOSED_LOOP_CONTROL) {
                     static const uint32_t state = ODRIVE_AXIS_STATE_IDLE;
-                    ESP_ERROR_CHECK(odrive_send_command(
-                            i, ODRIVE_CMD_SET_REQUESTED_STATE, &state, sizeof(state)));
+                    can_error_check(app, odrive_send_command(i, ODRIVE_CMD_SET_REQUESTED_STATE,
+                                                 &state, sizeof(state)));
                 }
             }
         }
@@ -445,7 +450,7 @@ static void control_loop(void* pvParameters) {
         }
         // press select button to clear motor errors
         if (app->slab.gamepad.buttons & GAMEPAD_BUTTON_SELECT) {
-            motors_clear_errors();
+            motors_clear_errors(app);
         }
         // run control logic only when error-free
         if (!app->status.error.code) {
