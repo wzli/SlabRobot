@@ -266,32 +266,19 @@ static void motors_homing_timeout_callback(TimerHandle_t timer) {
     }
 }
 
-static void motors_clear_errors() {
-    for (int i = 0; i < N_MOTORS; ++i) {
-        ESP_ERROR_CHECK(odrive_send_command(i, ODRIVE_CMD_CLEAR_ERRORS, NULL, 0));
-    }
-}
-
-static void motors_init(App* app) {
-    motors_clear_errors();
-    // wait for errors to clear
-    vTaskDelay(1);
-    // homing is required for legs only
-    for (int i = 0; i < 2; ++i) {
-        app->status.error.code |= 1 << i;
-        app->status.motors[i].odrive.state_transition_callback = motors_homing_complete_callback;
-        app->status.motors[i].odrive.state_transition_context = app;
-    }
-    // create motor homing timer
-    app->homing_timer = xTimerCreate("homing_timer", MOTOR_HOMING_TIMEOUT_TICKS, pdFALSE, app,
-            motors_homing_timeout_callback);
-    assert(app->homing_timer);
-}
-
 static void motors_input_update(const App* app) {
     for (int i = 0; i < N_MOTORS; ++i) {
         const ODriveStatus* odrive = &app->status.motors[i].status;
         const MotorMsg* motor = &app->slab.motors[i];
+        // clear endstop errors if the command is in the centering direction
+        if ((odrive->axis_error == ODRIVE_AXIS_ERROR_MIN_ENDSTOP_PRESSED &&
+                    motor->input.position >= motor->estimate.position &&
+                    motor->input.velocity >= 0 && motor->input.torque >= 0) ||
+                (odrive->axis_error == ODRIVE_AXIS_ERROR_MAX_ENDSTOP_PRESSED &&
+                        motor->input.position <= motor->estimate.position &&
+                        motor->input.velocity <= 0 && motor->input.torque <= 0)) {
+            ESP_ERROR_CHECK(odrive_send_command(i, ODRIVE_CMD_CLEAR_ERRORS, NULL, 0));
+        }
         // request closed loop control state if not already
         static const uint32_t state = ODRIVE_AXIS_STATE_CLOSED_LOOP_CONTROL;
         if (odrive->axis_state != state) {
@@ -370,6 +357,28 @@ static esp_err_t motors_error_request(uint32_t tick) {
     uint8_t axis_id = (tick / 2) % N_MOTORS;
     uint8_t cmd_id = tick & 1 ? ODRIVE_CMD_GET_MOTOR_ERROR : ODRIVE_CMD_GET_ENCODER_ERROR;
     return odrive_send_get_command(axis_id, cmd_id);
+}
+
+static void motors_clear_errors() {
+    for (int i = 0; i < N_MOTORS; ++i) {
+        ESP_ERROR_CHECK(odrive_send_command(i, ODRIVE_CMD_CLEAR_ERRORS, NULL, 0));
+    }
+}
+
+static void motors_init(App* app) {
+    motors_clear_errors();
+    // wait for errors to clear
+    vTaskDelay(1);
+    // homing is required for legs only
+    for (int i = 0; i < 2; ++i) {
+        app->status.error.code |= 1 << i;
+        app->status.motors[i].odrive.state_transition_callback = motors_homing_complete_callback;
+        app->status.motors[i].odrive.state_transition_context = app;
+    }
+    // create motor homing timer
+    app->homing_timer = xTimerCreate("homing_timer", MOTOR_HOMING_TIMEOUT_TICKS, pdFALSE, app,
+            motors_homing_timeout_callback);
+    assert(app->homing_timer);
 }
 
 //------------------------------------------------------------------------------
