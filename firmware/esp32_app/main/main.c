@@ -1,5 +1,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/timers.h"
 
 #include "esp_err.h"
 #include "esp_log.h"
@@ -36,6 +37,7 @@
 
 #define CAN_BAUD_RATE TWAI_TIMING_CONFIG_1MBITS
 
+#define MOTOR_HOMING_TIMEOUT_TICKS 50
 #define MOTOR_COMMS_TIMEOUT_TICKS 50
 #define IMU_COMMS_TIMEOUT_TICKS 50
 #define GAMEPAD_COMMS_TIMEOUT_TICKS 50
@@ -142,12 +144,13 @@ MXGEN(struct, AppStatus)
 
 typedef struct Imu Imu;
 
-#define TYPEDEF_App(X, _)           \
-    _(int32_t, dir_idx, )           \
-    _(TaskHandle_t, control_task, ) \
-    _(TaskHandle_t, monitor_task, ) \
-    _(Imu*, imu, )                  \
-    X(Slab, slab, )                 \
+#define TYPEDEF_App(X, _)            \
+    _(int32_t, dir_idx, )            \
+    _(TaskHandle_t, control_task, )  \
+    _(TaskHandle_t, monitor_task, )  \
+    _(TimerHandle_t, homing_timer, ) \
+    _(Imu*, imu, )                   \
+    X(Slab, slab, )                  \
     X(AppStatus, status, )
 MXGEN(struct, App)
 
@@ -228,6 +231,10 @@ static void motors_homing_request(const App* app) {
                     odrive_send_command(i, ODRIVE_CMD_SET_REQUESTED_STATE, &state, sizeof(state)));
         }
     }
+    // start homing timer to detect timeout
+    if (xTimerStart(app->homing_timer, 0) == pdFAIL) {
+        assert(0);
+    }
 }
 
 static void motors_homing_complete_callback(
@@ -241,6 +248,21 @@ static void motors_homing_complete_callback(
         app->slab.motors[axis_id].input = (MotorInput){-M_PI, 0, 0, MOTOR_CONTROL_MODE_POSITION};
         app->slab.motors[axis_id].estimate = (MotorEstimate){-M_PI, 0};
         ps3_gamepad_led_update(app->status.error);
+    }
+}
+
+static void motors_homing_timeout_callback(TimerHandle_t timer) {
+    App* app = (App*) pvTimerGetTimerID(timer);
+    for (int i = 0; i < 2; ++i) {
+        // assume that homing is complete if there are no errors after a timeout
+        // this is required because homing complete callback won't trigger if motors start homed
+        const ODriveStatus* odrive = &app->status.motors[i].status;
+        if (app->status.error.code & (1 << i) && odrive->axis_state == ODRIVE_AXIS_STATE_IDLE &&
+                !(odrive->axis_error & ~ODRIVE_AXIS_ERROR_MIN_ENDSTOP_PRESSED) &&
+                !odrive->motor_error && !odrive->encoder_error) {
+            motors_homing_complete_callback(
+                    i, ODRIVE_AXIS_STATE_IDLE, ODRIVE_AXIS_STATE_HOMING, app);
+        }
     }
 }
 
@@ -260,6 +282,10 @@ static void motors_init(App* app) {
         app->status.motors[i].odrive.state_transition_callback = motors_homing_complete_callback;
         app->status.motors[i].odrive.state_transition_context = app;
     }
+    // create motor homing timer
+    app->homing_timer = xTimerCreate("homing_timer", MOTOR_HOMING_TIMEOUT_TICKS, pdFALSE, app,
+            motors_homing_timeout_callback);
+    assert(app->homing_timer);
 }
 
 static void motors_input_update(const App* app) {
