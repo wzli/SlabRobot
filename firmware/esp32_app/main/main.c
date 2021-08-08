@@ -9,6 +9,7 @@
 #include "esp_bt_device.h"
 
 #include "driver/i2c.h"
+#include "driver/gpio.h"
 #include "driver/sdmmc_host.h"
 #include "driver/twai.h"
 #include "nvs_flash.h"
@@ -20,6 +21,8 @@
 
 //------------------------------------------------------------------------------
 // constants
+
+#define PIN_LED 33
 
 #if 1
 #define PIN_SDA 13
@@ -37,6 +40,7 @@
 
 #define CAN_BAUD_RATE TWAI_TIMING_CONFIG_1MBITS
 
+#define LED_HEARTBEAT_DOT_TICKS 200
 #define MOTOR_HOMING_TIMEOUT_TICKS 50
 #define MOTOR_COMMS_TIMEOUT_TICKS 50
 #define IMU_COMMS_TIMEOUT_TICKS 50
@@ -145,13 +149,15 @@ MXGEN(struct, AppStatus)
 
 typedef struct Imu Imu;
 
-#define TYPEDEF_App(X, _)            \
-    _(int32_t, dir_idx, )            \
-    _(TaskHandle_t, control_task, )  \
-    _(TaskHandle_t, monitor_task, )  \
-    _(TimerHandle_t, homing_timer, ) \
-    _(Imu*, imu, )                   \
-    X(Slab, slab, )                  \
+#define TYPEDEF_App(X, _)               \
+    _(uint64_t, led_pattern, )          \
+    _(int32_t, dir_idx, )               \
+    _(TaskHandle_t, control_task, )     \
+    _(TaskHandle_t, monitor_task, )     \
+    _(TimerHandle_t, heartbeat_timer, ) \
+    _(TimerHandle_t, homing_timer, )    \
+    _(Imu*, imu, )                      \
+    X(Slab, slab, )                     \
     X(AppStatus, status, )
 MXGEN(struct, App)
 
@@ -237,9 +243,7 @@ static void motors_homing_request(App* app) {
         }
     }
     // start homing timer to detect timeout
-    if (xTimerStart(app->homing_timer, 0) == pdFAIL) {
-        assert(0);
-    }
+    ESP_ERROR_CHECK(xTimerStart(app->homing_timer, 0));
 }
 
 static void motors_homing_complete_callback(
@@ -365,6 +369,8 @@ static esp_err_t motors_error_request(uint32_t tick) {
 }
 
 static void motors_clear_errors(App* app) {
+    app->status.error.flags.motor_error = false;
+    app->status.error.flags.can_error = false;
     for (int i = 0; i < N_MOTORS; ++i) {
         can_error_check(app, odrive_send_command(i, ODRIVE_CMD_CLEAR_ERRORS, NULL, 0));
     }
@@ -381,13 +387,31 @@ static void motors_init(App* app) {
         app->status.motors[i].odrive.state_transition_context = app;
     }
     // create motor homing timer
-    app->homing_timer = xTimerCreate("homing_timer", MOTOR_HOMING_TIMEOUT_TICKS, pdFALSE, app,
+    app->homing_timer = xTimerCreate("homing_timer", MOTOR_HOMING_TIMEOUT_TICKS, false, app,
             motors_homing_timeout_callback);
     assert(app->homing_timer);
 }
 
 //------------------------------------------------------------------------------
 // task functions
+
+static void led_heartbeat_callback(TimerHandle_t timer) {
+    App* app = (App*) pvTimerGetTimerID(timer);
+    if (!app->led_pattern) {
+        int idx = 3;
+        for (int i = 0; i < 8; ++i) {
+            if (app->status.error.code & (1 << i)) {
+                app->led_pattern |= 0x7 << (i + idx);
+                idx += 4;
+            } else {
+                app->led_pattern |= 1 << (i + idx);
+                idx += 2;
+            }
+        }
+    }
+    ESP_ERROR_CHECK(gpio_set_level(PIN_LED, app->led_pattern & 1));
+    app->led_pattern >>= 1;
+}
 
 static void gamepad_callback(void* pvParameters, ps3_t ps3_state, ps3_event_t ps3_event) {
     App* app = (App*) pvParameters;
@@ -514,18 +538,6 @@ static void monitor_loop(void* pvParameters) {
 //------------------------------------------------------------------------------
 // init functions
 
-static void sdcard_init() {
-    sdmmc_host_t host = SDMMC_HOST_DEFAULT();
-    sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
-    slot_config.flags |= SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
-    slot_config.width = 1;  // configure 1-line mode
-    sdmmc_card_t* card;
-    esp_vfs_fat_sdmmc_mount_config_t mount_config = {
-            .format_if_mount_failed = false, .max_files = 5, .allocation_unit_size = 16 * 1024};
-    ESP_ERROR_CHECK_WITHOUT_ABORT(
-            esp_vfs_fat_sdmmc_mount("/sdcard", &host, &slot_config, &mount_config, &card));
-}
-
 static void can_init() {
     twai_general_config_t g_config =
             TWAI_GENERAL_CONFIG_DEFAULT(PIN_CAN_TX, PIN_CAN_RX, TWAI_MODE_NORMAL);
@@ -550,6 +562,16 @@ static void i2c_init() {
     ESP_ERROR_CHECK(i2c_driver_install(I2C_NUM_0, I2C_MODE_MASTER, 0, 0, 0));
 }
 
+static void led_init() {
+    gpio_config_t io_conf;
+    io_conf.intr_type = GPIO_INTR_DISABLE;
+    io_conf.mode = GPIO_MODE_OUTPUT;
+    io_conf.pin_bit_mask = 1ull << PIN_LED;
+    io_conf.pull_down_en = 0;
+    io_conf.pull_up_en = 0;
+    ESP_ERROR_CHECK(gpio_config(&io_conf));
+}
+
 static void ps3_init() {
     ESP_ERROR_CHECK(nvs_flash_init());
     ps3Init();
@@ -557,6 +579,18 @@ static void ps3_init() {
     assert(mac);
     ESP_LOGI(pcTaskGetName(NULL), "Bluetooth MAC %hhx:%hhx:%hhx:%hhx:%hhx:%hhx", mac[0], mac[1],
             mac[2], mac[3], mac[4], mac[5]);
+}
+
+static void sdcard_init() {
+    sdmmc_host_t host = SDMMC_HOST_DEFAULT();
+    sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
+    slot_config.flags |= SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
+    slot_config.width = 1;  // configure 1-line mode
+    sdmmc_card_t* card;
+    esp_vfs_fat_sdmmc_mount_config_t mount_config = {
+            .format_if_mount_failed = false, .max_files = 5, .allocation_unit_size = 16 * 1024};
+    ESP_ERROR_CHECK_WITHOUT_ABORT(
+            esp_vfs_fat_sdmmc_mount("/sdcard", &host, &slot_config, &mount_config, &card));
 }
 
 void app_main(void) {
@@ -574,6 +608,12 @@ void app_main(void) {
     esp_log_level_set("PS3_L2CAP", ESP_LOG_WARN);
     app.dir_idx = dir_create("slab");
     // init tasks
-    xTaskCreatePinnedToCore(monitor_loop, "monitor_loop", 8 * 2048, &app, 1, &app.monitor_task, 0);
-    xTaskCreatePinnedToCore(control_loop, "control_loop", 8 * 2048, &app, 9, &app.control_task, 1);
+    ESP_ERROR_CHECK(xTaskCreatePinnedToCore(
+            monitor_loop, "monitor_loop", 8 * 2048, &app, 1, &app.monitor_task, 0));
+    ESP_ERROR_CHECK(xTaskCreatePinnedToCore(
+            control_loop, "control_loop", 8 * 2048, &app, 9, &app.control_task, 1));
+    app.heartbeat_timer = xTimerCreate(
+            "heartbeat_timer", LED_HEARTBEAT_DOT_TICKS, true, &app, led_heartbeat_callback);
+    assert(app.heartbeat_timer);
+    ESP_ERROR_CHECK(xTimerStart(app.heartbeat_timer, 0));
 }
