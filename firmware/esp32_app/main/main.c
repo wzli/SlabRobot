@@ -40,7 +40,7 @@
 
 #define CAN_BAUD_RATE TWAI_TIMING_CONFIG_1MBITS
 
-#define LED_HEARTBEAT_DOT_TICKS 200
+#define LED_HEARTBEAT_DOT_TICKS 20
 #define MOTOR_HOMING_TIMEOUT_TICKS 50
 #define MOTOR_COMMS_TIMEOUT_TICKS 50
 #define IMU_COMMS_TIMEOUT_TICKS 50
@@ -164,9 +164,10 @@ MXGEN(struct, App)
 //------------------------------------------------------------------------------
 // helper functions
 
-static void can_error_check(App* app, esp_err_t error) {
-    app->status.error.flags.can_error |= ESP_ERROR_CHECK_WITHOUT_ABORT(error);
-}
+#define RTOS_ERROR_CHECK(ERR) ESP_ERROR_CHECK((ERR) -pdPASS)
+
+#define CAN_ERROR_CHECK(APP, ERR) \
+    (app)->status.error.flags.can_error |= ESP_ERROR_CHECK_WITHOUT_ABORT(ERR)
 
 static int error_counter_update(ErrorCounter* counter, int error_count) {
     counter->total += error_count;
@@ -238,12 +239,12 @@ static void motors_homing_request(App* app) {
         static const uint32_t state = ODRIVE_AXIS_STATE_HOMING;
         if (app->status.error.code & (1 << i) &&
                 app->status.motors[i].status.axis_state != state) {
-            can_error_check(app,
+            CAN_ERROR_CHECK(app,
                     odrive_send_command(i, ODRIVE_CMD_SET_REQUESTED_STATE, &state, sizeof(state)));
         }
     }
     // start homing timer to detect timeout
-    ESP_ERROR_CHECK(xTimerStart(app->homing_timer, 0));
+    RTOS_ERROR_CHECK(xTimerStart(app->homing_timer, 0));
 }
 
 static void motors_homing_complete_callback(
@@ -286,12 +287,12 @@ static void motors_input_update(App* app) {
                 (odrive->axis_error == ODRIVE_AXIS_ERROR_MAX_ENDSTOP_PRESSED &&
                         motor->input.position <= motor->estimate.position &&
                         motor->input.velocity <= 0 && motor->input.torque <= 0)) {
-            can_error_check(app, odrive_send_command(i, ODRIVE_CMD_CLEAR_ERRORS, NULL, 0));
+            CAN_ERROR_CHECK(app, odrive_send_command(i, ODRIVE_CMD_CLEAR_ERRORS, NULL, 0));
         }
         // request closed loop control state if not already
         static const uint32_t state = ODRIVE_AXIS_STATE_CLOSED_LOOP_CONTROL;
         if (odrive->axis_state != state) {
-            can_error_check(app,
+            CAN_ERROR_CHECK(app,
                     odrive_send_command(i, ODRIVE_CMD_SET_REQUESTED_STATE, &state, sizeof(state)));
         }
         // send different motor commands depending on desired control mode
@@ -303,7 +304,7 @@ static void motors_input_update(App* app) {
                         (motor->input.position + M_PI) * MOTOR_GEAR_RATIOS[i] / (2 * M_PI),
                         1000 * motor->input.velocity * MOTOR_GEAR_RATIOS[i] / (2 * M_PI),
                         1000 * motor->input.torque / MOTOR_GEAR_RATIOS[i]};
-                can_error_check(app, odrive_send_command(i, ODRIVE_CMD_SET_INPUT_POS, &input_pos,
+                CAN_ERROR_CHECK(app, odrive_send_command(i, ODRIVE_CMD_SET_INPUT_POS, &input_pos,
                                              sizeof(input_pos)));
                 break;
             }
@@ -311,7 +312,7 @@ static void motors_input_update(App* app) {
                 const ODriveInputVelocity input_vel = {
                         motor->input.velocity * MOTOR_GEAR_RATIOS[i] / (2 * M_PI),
                         motor->input.torque / MOTOR_GEAR_RATIOS[i]};
-                can_error_check(app, odrive_send_command(i, ODRIVE_CMD_SET_INPUT_VEL, &input_vel,
+                CAN_ERROR_CHECK(app, odrive_send_command(i, ODRIVE_CMD_SET_INPUT_VEL, &input_vel,
                                              sizeof(input_vel)));
                 break;
             }
@@ -372,7 +373,7 @@ static void motors_clear_errors(App* app) {
     app->status.error.flags.motor_error = false;
     app->status.error.flags.can_error = false;
     for (int i = 0; i < N_MOTORS; ++i) {
-        can_error_check(app, odrive_send_command(i, ODRIVE_CMD_CLEAR_ERRORS, NULL, 0));
+        CAN_ERROR_CHECK(app, odrive_send_command(i, ODRIVE_CMD_CLEAR_ERRORS, NULL, 0));
     }
 }
 
@@ -398,18 +399,18 @@ static void motors_init(App* app) {
 static void led_heartbeat_callback(TimerHandle_t timer) {
     App* app = (App*) pvTimerGetTimerID(timer);
     if (!app->led_pattern) {
-        int idx = 3;
-        for (int i = 0; i < 8; ++i) {
+        int idx = 4;
+        for (int i = 0; i < 7; ++i) {
             if (app->status.error.code & (1 << i)) {
-                app->led_pattern |= 0x7 << (i + idx);
+                app->led_pattern |= 0x7 << idx;
                 idx += 4;
             } else {
-                app->led_pattern |= 1 << (i + idx);
+                app->led_pattern |= 1 << idx;
                 idx += 2;
             }
         }
     }
-    ESP_ERROR_CHECK(gpio_set_level(PIN_LED, app->led_pattern & 1));
+    ESP_ERROR_CHECK(gpio_set_level(PIN_LED, !(app->led_pattern & 1)));
     app->led_pattern >>= 1;
 }
 
@@ -435,8 +436,8 @@ static void control_loop(void* pvParameters) {
     for (TickType_t tick = xTaskGetTickCount();; vTaskDelayUntil(&tick, 1)) {
         uint32_t prev_error_code = app->status.error.code;
         // fetch motor updates
-        can_error_check(app, motors_error_request(tick));
-        can_error_check(app, motors_feedback_update(app));
+        CAN_ERROR_CHECK(app, motors_error_request(tick));
+        CAN_ERROR_CHECK(app, motors_feedback_update(app));
         // fetch imu updates
         app->status.error.flags.imu_comms_timeout =
                 error_counter_update(&app->status.imu_comms_missed,
@@ -463,7 +464,7 @@ static void control_loop(void* pvParameters) {
                 if (app->status.motors[i].status.axis_state ==
                         ODRIVE_AXIS_STATE_CLOSED_LOOP_CONTROL) {
                     static const uint32_t state = ODRIVE_AXIS_STATE_IDLE;
-                    can_error_check(app, odrive_send_command(i, ODRIVE_CMD_SET_REQUESTED_STATE,
+                    CAN_ERROR_CHECK(app, odrive_send_command(i, ODRIVE_CMD_SET_REQUESTED_STATE,
                                                  &state, sizeof(state)));
                 }
             }
@@ -597,6 +598,7 @@ void app_main(void) {
     // init peripherals
     can_init();
     i2c_init();
+    led_init();
     ps3_init();
     sdcard_init();
     // init app
@@ -608,12 +610,12 @@ void app_main(void) {
     esp_log_level_set("PS3_L2CAP", ESP_LOG_WARN);
     app.dir_idx = dir_create("slab");
     // init tasks
-    ESP_ERROR_CHECK(xTaskCreatePinnedToCore(
+    RTOS_ERROR_CHECK(xTaskCreatePinnedToCore(
             monitor_loop, "monitor_loop", 8 * 2048, &app, 1, &app.monitor_task, 0));
-    ESP_ERROR_CHECK(xTaskCreatePinnedToCore(
+    RTOS_ERROR_CHECK(xTaskCreatePinnedToCore(
             control_loop, "control_loop", 8 * 2048, &app, 9, &app.control_task, 1));
     app.heartbeat_timer = xTimerCreate(
             "heartbeat_timer", LED_HEARTBEAT_DOT_TICKS, true, &app, led_heartbeat_callback);
     assert(app.heartbeat_timer);
-    ESP_ERROR_CHECK(xTimerStart(app.heartbeat_timer, 0));
+    RTOS_ERROR_CHECK(xTimerStart(app.heartbeat_timer, 0));
 }
