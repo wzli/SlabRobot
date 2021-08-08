@@ -150,7 +150,7 @@ MXGEN(struct, AppStatus)
 typedef struct Imu Imu;
 
 #define TYPEDEF_App(X, _)               \
-    _(uint64_t, led_pattern, )          \
+    _(uint32_t, led_pattern, )          \
     _(int32_t, dir_idx, )               \
     _(TaskHandle_t, control_task, )     \
     _(TaskHandle_t, monitor_task, )     \
@@ -427,6 +427,8 @@ static void gamepad_callback(void* pvParameters, ps3_t ps3_state, ps3_event_t ps
     gamepad->right_trigger = ps3_state.analog.button.r2;
     // update timestamp
     app->status.gamepad_timestamp = xTaskGetTickCount();
+    // force balance disable
+    gamepad->buttons |= GAMEPAD_BUTTON_L1;
 }
 
 static void control_loop(void* pvParameters) {
@@ -480,10 +482,7 @@ static void control_loop(void* pvParameters) {
         // run control logic only when error-free
         if (!app->status.error.code) {
             app->slab.tick = tick;
-            // force balance controller disable
-            app->slab.gamepad.buttons |= GAMEPAD_BUTTON_L1;
             slab_update(&app->slab);
-            app->slab.gamepad.buttons &= ~GAMEPAD_BUTTON_L1;
             motors_input_update(app);
         }
     }

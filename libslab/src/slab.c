@@ -43,7 +43,7 @@ static void slab_gamepad_input_update(Slab* slab) {
         axis[Y] *= trigger;
     }
     // disable balance control with L1
-    slab->input.balance_enable = ~slab->gamepad.buttons & GAMEPAD_BUTTON_L1;
+    slab->input.balance_enable = !(slab->gamepad.buttons & GAMEPAD_BUTTON_L1);
     // scale velocity input to max wheel speed
     float speed_scale = 0.5f * slab->config.wheel_diameter * slab->config.max_wheel_speed;
     if (slab->state.balance_active) {
