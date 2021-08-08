@@ -460,8 +460,16 @@ static void control_loop(void* pvParameters) {
         else if (app->status.error.code != prev_error_code) {
             ps3_gamepad_led_update(app->status.error);
         }
+        // press start button to send homing request
+        if (app->slab.gamepad.buttons & GAMEPAD_BUTTON_START) {
+            motors_homing_request(app);
+        }
+        // press select button to clear motor errors
+        if (app->slab.gamepad.buttons & GAMEPAD_BUTTON_SELECT) {
+            motors_clear_errors(app);
+        }
         // request idle state if there is an error
-        if (app->status.error.code > 0x1F) {
+        if (app->status.error.code) {
             for (int i = 0; i < N_MOTORS; ++i) {
                 if (app->status.motors[i].status.axis_state ==
                         ODRIVE_AXIS_STATE_CLOSED_LOOP_CONTROL) {
@@ -471,16 +479,8 @@ static void control_loop(void* pvParameters) {
                 }
             }
         }
-        // press start button to send homing request
-        if (app->slab.gamepad.buttons & GAMEPAD_BUTTON_START) {
-            motors_homing_request(app);
-        }
-        // press select button to clear motor errors
-        if (app->slab.gamepad.buttons & GAMEPAD_BUTTON_SELECT) {
-            motors_clear_errors(app);
-        }
         // run control logic only when error-free
-        if (!app->status.error.code) {
+        else {
             app->slab.tick = tick;
             slab_update(&app->slab);
             motors_input_update(app);
