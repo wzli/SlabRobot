@@ -138,7 +138,7 @@ MXGEN(union, MotorStatus)
 
 #define TYPEDEF_AppStatus(X, _)                     \
     X(uint32_t, tick, )                             \
-    _(CanStatus, can, )                             \
+    X(CanStatus, can, )                             \
     _(TaskStatus, tasks, [8])                       \
     X(MotorStatus, motors, [N_MOTORS])              \
     X(ErrorCounter, motor_comms_missed, [N_MOTORS]) \
@@ -518,12 +518,13 @@ static void monitor_loop(void* pvParameters) {
         puts("Task Name       Abs Time        % Time");
         vTaskGetRunTimeStats(text_buf);
         puts(text_buf);
-        // update can status
-        ESP_ERROR_CHECK(twai_get_status_info((twai_status_info_t*) &app->status.can));
+
         // update task status
         uxTaskGetSystemState((TaskStatus_t*) app->status.tasks,
                 sizeof(app->status.tasks) / sizeof(app->status.tasks[0]), NULL);
 #endif
+        // update can status
+        ESP_ERROR_CHECK(twai_get_status_info((twai_status_info_t*) &app->status.can));
         // print app data to uart
         App_to_json(app, text_buf);
         puts(text_buf);
