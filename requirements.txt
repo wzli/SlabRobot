@@ -1,7 +1,6 @@
 tk
 matplotlib
 pybullet
-ctypes
 ctypesgen
 pyserial
 inputs
