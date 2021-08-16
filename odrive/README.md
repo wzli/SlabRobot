@@ -53,7 +53,7 @@ odrv0.axis0.requested_state = AXIS_STATE_HOMING
 First follow [wiring guide](https://docs.odriverobotics.com/#wiring-up-the-odrive) to hook things up.
 Then refer to [params guide](https://docs.odriverobotics.com/#configure-m0) to configure each axis.
 
-- **Double check wiring things might burn if hooked up incorrectly!** 
+- **Double check wiring things might burn if hooked up incorrectly!**
 - **Always recalibrate motor and encoders after things have been plugged and unplugged!**
 
 ## A. System Configuration
@@ -62,7 +62,7 @@ Then refer to [params guide](https://docs.odriverobotics.com/#configure-m0) to c
 2. Enable brake resistor `odrv0.config.enable_brake_resistor = True`.
 3. Set `odrv0.config.brake_resistance = 2` (value of power resistor that comes with kit).
 
-## B. Calibrate Motor 
+## B. Calibrate Motor
 
 1. Set `odrv0.axis0.motor.config.pole_pairs = X`.
 Refer to params guide to determing number of pole pairs for the motor.
@@ -119,14 +119,14 @@ Units are revolutions/second. This can be calculated approximaty `0.7 * supply v
 ### BDUAV6384
 
 - odrv0.axis0.controller.config.vel_limit = 50
-- odrv0.axis0.motor.config.current_lim = 60
+- odrv0.axis0.motor.config.current_lim = 100
 - odrv0.axis0.motor.config.current_lim_margin = 20
-- odrv0.axis0.motor.config.current_control_bandwidth = 100
-- odrv0.axis0.controller.config.pos_gain = 3
-- odrv0.axis0.controller.config.vel_gain = 0.05
-- odrv0.axis0.controller.config.vel_integrator_gain = 0.03
+- odrv0.axis0.motor.config.requested_current_range = 120
+- odrv0.axis0.motor.config.current_control_bandwidth = 2000
+- odrv0.axis0.controller.config.pos_gain = 2
+- odrv0.axis0.controller.config.vel_gain = 0.25
+- odrv0.axis0.controller.config.vel_integrator_gain = 0.25
 - odrv0.axis0.controller.config.control_mode = CONTROL_MODE_POSITION_CONTROL
-
 
 
 # Troubleshoot
@@ -154,7 +154,7 @@ Usually it is safe to charge lipo batteries at 1-2C. Once the allowable regen cu
 ```
 odrv0.config.max_regen_current = 5
 odrv0.config.dc_max_negative_current = -5 # note this is negative the above
-``` 
+```
 
 ### ERROR_PHASE_RESISTANCE_OUT_OF_RANGE
 Need to bump up `odrv0.axis0.motor.config.resistance_calib_max_voltage` if the phase resistance of the motor is large. This is the case with hoverboard motors.
