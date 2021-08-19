@@ -122,10 +122,10 @@ Units are revolutions/second. This can be calculated approximaty `0.7 * supply v
 - odrv0.axis0.motor.config.current_lim = 100
 - odrv0.axis0.motor.config.current_lim_margin = 20
 - odrv0.axis0.motor.config.requested_current_range = 120
-- odrv0.axis0.motor.config.current_control_bandwidth = 2000
+- odrv0.axis0.motor.config.current_control_bandwidth = 100
 - odrv0.axis0.controller.config.pos_gain = 2
 - odrv0.axis0.controller.config.vel_gain = 0.25
-- odrv0.axis0.controller.config.vel_integrator_gain = 0.25
+- odrv0.axis0.controller.config.vel_integrator_gain = 0.4
 - odrv0.axis0.controller.config.control_mode = CONTROL_MODE_POSITION_CONTROL
 
 ### AMK hubs
