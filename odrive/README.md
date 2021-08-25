@@ -117,26 +117,32 @@ Units are revolutions/second. This can be calculated approximaty `0.7 * supply v
 
 ## Reference Configurations
 ### BDUAV6384
+```
+odrv0.axis0.motor.config.torque_constant = 8.27 / 120
+odrv0.axis0.controller.config.vel_limit = 50
+odrv0.axis0.motor.config.current_lim = 100
+odrv0.axis0.motor.config.current_lim_margin = 20
+odrv0.axis0.motor.config.requested_current_range = 120
+odrv0.axis0.motor.config.current_control_bandwidth = 100
+odrv0.axis0.controller.config.pos_gain = 2
+odrv0.axis0.controller.config.vel_gain = 0.25
+odrv0.axis0.controller.config.vel_integrator_gain = 0.4
+odrv0.axis0.controller.config.control_mode = CONTROL_MODE_POSITION_CONTROL
+```
 
-- odrv0.axis0.controller.config.vel_limit = 50
-- odrv0.axis0.motor.config.current_lim = 100
-- odrv0.axis0.motor.config.current_lim_margin = 20
-- odrv0.axis0.motor.config.requested_current_range = 120
-- odrv0.axis0.motor.config.current_control_bandwidth = 100
-- odrv0.axis0.controller.config.pos_gain = 2
-- odrv0.axis0.controller.config.vel_gain = 0.25
-- odrv0.axis0.controller.config.vel_integrator_gain = 0.4
-- odrv0.axis0.controller.config.control_mode = CONTROL_MODE_POSITION_CONTROL
+### Hoverboard Motor
+```
+odrv0.axis0.motor.config.torque_constant = 8.27 / 16
+odrv0.axis0.controller.config.vel_limit = 8
+odrv0.axis0.motor.config.current_lim = 35
+odrv0.axis0.motor.config.requested_current_range = 40
+odrv0.axis0.motor.config.current_control_bandwidth = 200
 
-### AMK hubs
-- odrv0.axis0.controller.config.vel_limit = 8
-- odrv0.axis0.motor.config.current_lim = 35
-- odrv0.axis0.motor.config.requested_current_range = 40
-- odrv0.axis0.motor.config.current_control_bandwidth = 200
-
-- odrv0.axis0.controller.config.pos_gain = 1
-- odrv0.axis0.controller.config.vel_gain = 0.3
-- odrv0.axis0.controller.config.vel_integrator_gain = 0.12
+odrv0.axis0.controller.config.pos_gain = 1
+odrv0.axis0.controller.config.vel_gain = 0.3
+odrv0.axis0.controller.config.vel_integrator_gain = 0.12
+odrv0.axis0.controller.config.control_mode = CONTROL_MODE_VELOCITY_CONTROL
+```
 
 # Troubleshoot
 If error occured, the error codes stored in the following fields:
