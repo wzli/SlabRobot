@@ -66,12 +66,16 @@ docker pull espressif/idf:release-v4.3
 - Component Config / ESP32-Specific / CPU frequency
   - 240 MHz
 - Component Config / ESP32-Specific / Support for external, SPI-connected RAM
-  - True (ESP32-CAM has 4MB PSRAM)
+  - False / True (ESP32-CAM has 4MB PSRAM but CS pin on IO16 might be used)
 - Component Config / FreeRTOS / Enable FreeRTOS to collect run time stats
   - True
 - Component Config / FreeRTOS / Enable display of xCoreID in vTaskList
   - True
-
+- Component Config / Core dump / Data destination
+  - Flash
+- Component Config / ESP System Settings / Panic handler behaviour
+  - Print registers and halt (Invoke GDBStub breaks flash coredump)
+- [PS3 controller config](https://github.com/jvpernis/esp32-ps3#configuring-your-project)
 
 ## Build
 `./idf.sh build`
