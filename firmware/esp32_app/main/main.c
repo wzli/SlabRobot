@@ -46,11 +46,11 @@
 #define IMU_COMMS_TIMEOUT_TICKS 50
 #define GAMEPAD_COMMS_TIMEOUT_TICKS 50
 
-#define N_MOTORS 2
-static const float MOTOR_GEAR_RATIOS[N_MOTORS] = {-33, 33};
+#define N_MOTORS 6
+static const float MOTOR_GEAR_RATIOS[N_MOTORS] = {-33, 33, -1, 1, -1, 1};
 
 static const SlabConfig SLAB_CONFIG = {
-        .max_wheel_speed = 40.0f,   // rads/s
+        .max_wheel_speed = 50.0f,   // rads/s
         .wheel_diameter = 0.165f,   // m
         .wheel_distance = 0.4f,     // m
         .body_length = 0.4f,        // m
