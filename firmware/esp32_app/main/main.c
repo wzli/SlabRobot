@@ -50,13 +50,13 @@
 static const float MOTOR_GEAR_RATIOS[N_MOTORS] = {-33, 33, -1, 1, -1, 1};
 
 static const SlabConfig SLAB_CONFIG = {
-        .max_wheel_speed = 50.0f,   // rads/s
-        .wheel_diameter = 0.165f,   // m
-        .wheel_distance = 0.4f,     // m
-        .body_length = 0.4f,        // m
-        .leg_length = 0.35f,        // m
-        .max_leg_position = M_PI,   // rad
-        .min_leg_position = -M_PI,  // rad
+        .max_wheel_speed = 50.0f,          // rads/s
+        .wheel_diameter = 0.165f,          // m
+        .wheel_distance = 0.425f,          // m
+        .body_length = 0.380f,             // m
+        .leg_length = 0.294f,              // m
+        .max_leg_position = M_PI * 3 / 4,  // rad
+        .min_leg_position = -M_PI,         // rad
         .imu_axis_remap = {AXIS_REMAP_X, AXIS_REMAP_Y, AXIS_REMAP_Z},
         .joystick_threshold = 10,       // 0 - 255
         .ground_rise_threshold = 0.08,  // m
