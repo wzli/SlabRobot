@@ -72,6 +72,7 @@ static const SlabConfig SLAB_CONFIG = {
 typedef struct {
     bool homing_required_front : 1;
     bool homing_required_back : 1;
+    bool estop : 1;
     bool can_error : 1;
     bool motor_error : 1;
     bool motor_comms_timeout : 1;
@@ -150,7 +151,7 @@ MXGEN(struct, AppStatus)
 typedef struct Imu Imu;
 
 #define TYPEDEF_App(X, _)               \
-    _(uint32_t, led_pattern, )          \
+    _(uint64_t, led_pattern, )          \
     _(int32_t, dir_idx, )               \
     _(TaskHandle_t, control_task, )     \
     _(TaskHandle_t, monitor_task, )     \
@@ -220,15 +221,15 @@ extern bool imu_read(Imu* imu, ImuMsg* imu_msg);
 
 static void ps3_gamepad_led_update(AppError app_error) {
     ps3_cmd_t cmd = {0};
-    cmd.led1 = !app_error.flags.gamepad_comms_timeout;
+    cmd.led1 = true;
     cmd.led2 = app_error.flags.homing_required_front || app_error.flags.homing_required_back;
-    cmd.led3 = app_error.flags.motor_error || app_error.flags.motor_comms_timeout;
-    cmd.led4 = app_error.flags.imu_comms_timeout;
+    cmd.led3 = app_error.flags.estop;
+    cmd.led4 = app_error.code > 7;
     if (app_error.code > 3) {
         cmd.rumble_left_intensity = 255;
         cmd.rumble_right_intensity = 255;
-        cmd.rumble_left_duration = 50;
-        cmd.rumble_right_duration = 50;
+        cmd.rumble_left_duration = 30;
+        cmd.rumble_right_duration = 30;
     }
     ps3Cmd(cmd);
 }
@@ -400,12 +401,12 @@ static void led_heartbeat_callback(TimerHandle_t timer) {
     App* app = (App*) pvTimerGetTimerID(timer);
     if (!app->led_pattern) {
         int idx = 4;
-        for (int i = 0; i < 7; ++i) {
+        for (int i = 0; i < 8; ++i) {
             if (app->status.error.code & (1 << i)) {
-                app->led_pattern |= 0x7 << idx;
+                app->led_pattern |= 0x7ULL << idx;
                 idx += 4;
             } else {
-                app->led_pattern |= 1 << idx;
+                app->led_pattern |= 1ULL << idx;
                 idx += 2;
             }
         }
@@ -427,6 +428,10 @@ static void gamepad_callback(void* pvParameters, ps3_t ps3_state, ps3_event_t ps
     gamepad->right_trigger = ps3_state.analog.button.r2;
     // update timestamp
     app->status.gamepad_timestamp = xTaskGetTickCount();
+    // press PS home button to send homing request
+    if (ps3_state.button.ps) {
+        motors_homing_request(app);
+    }
     // force balance disable
     gamepad->buttons |= GAMEPAD_BUTTON_L1;
 }
@@ -456,17 +461,21 @@ static void control_loop(void* pvParameters) {
         if (app->status.error.flags.gamepad_comms_timeout) {
             app->slab.gamepad = (GamepadMsg){0};
         }
-        // set controller LED when error state changes
-        else if (app->status.error.code != prev_error_code) {
-            ps3_gamepad_led_update(app->status.error);
-        }
-        // press start button to send homing request
-        if (app->slab.gamepad.buttons & GAMEPAD_BUTTON_START) {
-            motors_homing_request(app);
-        }
-        // press select button to clear motor errors
-        if (app->slab.gamepad.buttons & GAMEPAD_BUTTON_SELECT) {
-            motors_clear_errors(app);
+        // else if gamepad is connected
+        else {
+            // press select button to trigger estop
+            if (app->slab.gamepad.buttons & GAMEPAD_BUTTON_SELECT) {
+                app->status.error.flags.estop = true;
+            }
+            // press start button to clear errors
+            if (app->slab.gamepad.buttons & GAMEPAD_BUTTON_START) {
+                app->status.error.flags.estop = false;
+                motors_clear_errors(app);
+            }
+            // set controller LED when error state changes
+            if (app->status.error.code != prev_error_code) {
+                ps3_gamepad_led_update(app->status.error);
+            }
         }
         // request idle state if there is an error
         if (app->status.error.code) {
