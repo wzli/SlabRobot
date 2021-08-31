@@ -61,9 +61,9 @@ static const SlabConfig SLAB_CONFIG = {
         .joystick_threshold = 10,       // 0 - 255
         .ground_rise_threshold = 0.08,  // m
         .ground_fall_threshold = 0.04,  // m
-        .incline_p_gain = 30.0f,
-        .speed_p_gain = 0.6f,
-        .speed_i_gain = 0.003f,
+        .incline_p_gain = 40.0f,
+        //.speed_p_gain = 0.6f,
+        //.speed_i_gain = 0.003f,
 };
 
 //------------------------------------------------------------------------------
@@ -432,8 +432,8 @@ static void gamepad_callback(void* pvParameters, ps3_t ps3_state, ps3_event_t ps
     if (ps3_state.button.ps) {
         motors_homing_request(app);
     }
-    // force balance disable
-    gamepad->buttons |= GAMEPAD_BUTTON_L1;
+    // flip balance trigger
+    gamepad->buttons ^= GAMEPAD_BUTTON_L1;
 }
 
 static void control_loop(void* pvParameters) {
