@@ -3,31 +3,13 @@
 import pybullet as p
 import pybullet_data
 import math
+import cbor
+import socket
+import time
 import inputs, os, io, fcntl
-
-import tkinter as tk
-from tkinter import ttk
 
 import ctypes
 from libslab.build import libslab_py
-
-
-def json_tree_update(tree, parent, dictionary, insert=True):
-    if not isinstance(dictionary, dict):
-        return tree.set(parent, 0, dictionary)
-    for key, value in dictionary.items():
-        if isinstance(value, list):
-            value = {str(i): x for i, x in enumerate(value)}
-        if isinstance(value, dict) and len(value) == 1:
-            ((child_key, value),) = value.items()
-            key += "_" + child_key
-        node = parent + "/" + key
-        if insert:
-            try:
-                tree.insert(parent, "end", node, text=key)
-            except tk.TclError:
-                pass
-        json_tree_update(tree, node, value)
 
 
 def ctype_to_dict(x):
@@ -40,12 +22,10 @@ def ctype_to_dict(x):
 
 class Simulation:
     def __init__(self):
-        # tk setup
-        self.root = tk.Tk()
-        self.root.title("Live Data")
-        self.root.bind("<Escape>", lambda x: self.root.destroy())
-        self.tree = ttk.Treeview(self.root, columns="value")
-        self.tree.pack(expand=1, fill=tk.BOTH)
+        # udp socket
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         # input
         self.init_inputs()
         # pybullet setup
@@ -260,28 +240,19 @@ class Simulation:
         self.update_imu()
         self.update_motors()
         libslab_py.slab_update(ctypes.byref(self.slab))
-
-    def sim_loop(self):
-        delay_ms = round(1000 / (240 * p.readUserDebugParameter(self.sim_rate)))
-        self.root.after(delay_ms, self.sim_loop)
-
-        p.stepSimulation()
-        self.update_inputs()
-        self.update_slab()
-        self.steps += 1
-        self.handle_reset_button()
-        self.handle_center_button()
-
-    def tree_update_loop(self):
-        self.tree.after(100, self.tree_update_loop)
-        json_tree_update(self.tree, "", ctype_to_dict(self.slab), insert=False)
+        # self.sock.sendto(cbor.dumps(ctype_to_dict(self.slab)), ("localhost", 9870))
+        for key, value in ctype_to_dict(self.slab).items():
+            self.sock.sendto(cbor.dumps({key: value}), ("localhost", 9870))
 
     def run(self):
-        json_tree_update(self.tree, "", ctype_to_dict(self.slab))
-        self.tree_update_loop()
-        self.sim_loop()
-        self.root.mainloop()
-        p.disconnect()
+        while True:
+            p.stepSimulation()
+            self.update_inputs()
+            self.update_slab()
+            self.steps += 1
+            self.handle_reset_button()
+            self.handle_center_button()
+            time.sleep(1 / (240 * p.readUserDebugParameter(self.sim_rate)))
 
 
 sim = Simulation()
