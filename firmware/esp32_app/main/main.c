@@ -8,7 +8,7 @@
 #include "esp_vfs_fat.h"
 #include "esp_wifi.h"
 #include "esp_bt_device.h"
-
+#include "lwip/sockets.h"
 #include "driver/i2c.h"
 #include "driver/gpio.h"
 #include "driver/sdmmc_host.h"
@@ -75,6 +75,8 @@ static const wifi_ap_config_t WIFI_AP_CONFIG = {
         .max_connection = 3,
         .authmode = WIFI_AUTH_OPEN,
 };
+
+static const uint16_t udp_port = 9870;
 
 //------------------------------------------------------------------------------
 // typedefs
@@ -525,6 +527,16 @@ static void monitor_loop(void* pvParameters) {
             ESP_ERROR_CHECK_WITHOUT_ABORT(f_sync(csv_log));
         }
     }
+
+    struct sockaddr_in DST_ADDR = {
+            .sin_family = AF_INET,
+            .sin_addr.s_addr = htonl(INADDR_BROADCAST),
+            .sin_port = htons(udp_port),
+    };
+    int sock = socket(AF_INET, SOCK_DGRAM, 0);
+    int val = 1;
+    ESP_ERROR_CHECK(setsockopt(sock, SOL_SOCKET, SO_BROADCAST, (char*) &val, sizeof(val)));
+
     // monitor loops at a lower frequency
     for (app->status.tick = xTaskGetTickCount();; vTaskDelayUntil(&app->status.tick, 5)) {
 #if 0
@@ -544,8 +556,8 @@ static void monitor_loop(void* pvParameters) {
         // update can status
         ESP_ERROR_CHECK(twai_get_status_info((twai_status_info_t*) &app->status.can));
         // print app data to uart
-        App_to_json(app, text_buf);
-        puts(text_buf);
+        int buf_len = App_to_json(app, text_buf);
+        sendto(sock, text_buf, buf_len, 0, (struct sockaddr*) &DST_ADDR, sizeof(DST_ADDR));
         // log app status as csv entry
         if (csv_log) {
             int len = App_to_csv_entry(app, text_buf);
@@ -603,7 +615,7 @@ static void wifi_init() {
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
-    ESP_LOGI(pcTaskGetName(NULL), "WIFI SSID:%s", (char*) &wifi_config.ap.ssid);
+    ESP_LOGI(pcTaskGetName(NULL), "WIFI SSID: %s", (char*) &wifi_config.ap.ssid);
 }
 
 static void ps3_init() {
