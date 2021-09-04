@@ -6,6 +6,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_vfs_fat.h"
+#include "esp_wifi.h"
 #include "esp_bt_device.h"
 
 #include "driver/i2c.h"
@@ -64,6 +65,15 @@ static const SlabConfig SLAB_CONFIG = {
         .incline_p_gain = 40.0f,
         //.speed_p_gain = 0.6f,
         //.speed_i_gain = 0.003f,
+};
+
+static const wifi_ap_config_t WIFI_AP_CONFIG = {
+        .ssid = "slab_robot",
+        .ssid_len = 10,
+        .channel = 1,
+        .password = "",
+        .max_connection = 3,
+        .authmode = WIFI_AUTH_OPEN,
 };
 
 //------------------------------------------------------------------------------
@@ -582,8 +592,21 @@ static void led_init() {
     ESP_ERROR_CHECK(gpio_config(&io_conf));
 }
 
-static void ps3_init() {
+static void wifi_init() {
     ESP_ERROR_CHECK(nvs_flash_init());
+    ESP_ERROR_CHECK(esp_netif_init());
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
+    esp_netif_create_default_wifi_ap();
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+    wifi_config_t wifi_config = {.ap = WIFI_AP_CONFIG};
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
+    ESP_ERROR_CHECK(esp_wifi_start());
+    ESP_LOGI(pcTaskGetName(NULL), "WIFI SSID:%s", (char*) &wifi_config.ap.ssid);
+}
+
+static void ps3_init() {
     ps3Init();
     const uint8_t* mac = esp_bt_dev_get_address();
     assert(mac);
@@ -608,6 +631,7 @@ void app_main(void) {
     can_init();
     i2c_init();
     led_init();
+    wifi_init();
     ps3_init();
     sdcard_init();
     // init app
