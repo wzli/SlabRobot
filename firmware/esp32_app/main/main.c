@@ -118,20 +118,6 @@ MXGEN(struct, ErrorCounter)
     X(uint32_t, bus_error_count, )
 MXGEN(struct, CanStatus)
 
-// keep the same layout as TaskStatus_t
-#define TYPEDEF_TaskStatus(X, _)        \
-    _(void*, xHandle, )                 \
-    _(char*, pcTaskName, )              \
-    X(uint32_t, xTaskNumber, )          \
-    X(uint32_t, eCurrentState, )        \
-    X(uint32_t, uxCurrentPriority, )    \
-    _(uint32_t, uxBasePriority, )       \
-    _(uint32_t, ulRunTimeCounter, )     \
-    _(void*, pxStackBase, )             \
-    X(uint32_t, usStackHighWaterMark, ) \
-    X(uint32_t, xCoreID, )
-MXGEN(struct, TaskStatus)
-
 // keep the same layout as ODriveAxis
 #define TYPEDEF_ODriveStatus(X, _)     \
     X(uint64_t, motor_error, )         \
@@ -153,7 +139,6 @@ MXGEN(union, MotorStatus)
 #define TYPEDEF_AppStatus(X, _)                     \
     X(uint32_t, tick, )                             \
     X(CanStatus, can, )                             \
-    _(TaskStatus, tasks, [8])                       \
     X(MotorStatus, motors, [N_MOTORS])              \
     X(ErrorCounter, motor_comms_missed, [N_MOTORS]) \
     X(ErrorCounter, imu_comms_missed, )             \
@@ -541,7 +526,6 @@ static void monitor_loop(void* pvParameters) {
     static char text_buf[4096];
     // check memory layout alignment of reinterpreted structs
     TRY_STATIC_ASSERT(sizeof(CanStatus) == sizeof(twai_status_info_t), "memory layout mismatch");
-    TRY_STATIC_ASSERT(sizeof(TaskStatus) == sizeof(TaskStatus_t), "memory layout mismatch");
     TRY_STATIC_ASSERT(sizeof(MotorStatus) == sizeof(ODriveAxis), "memory layout mismatch");
     // create new csv log file on sdcard if directory exists
     FIL* csv_log = NULL;
@@ -567,20 +551,6 @@ static void monitor_loop(void* pvParameters) {
 
     // monitor loops at a lower frequency
     for (app->status.tick = xTaskGetTickCount();; vTaskDelayUntil(&app->status.tick, 5)) {
-#if 0
-        // print task status
-        puts("Task Name       State   Pri     Stack   Num     CoreId");
-        vTaskList(text_buf);
-        puts(text_buf);
-
-        puts("Task Name       Abs Time        % Time");
-        vTaskGetRunTimeStats(text_buf);
-        puts(text_buf);
-
-        // update task status
-        uxTaskGetSystemState((TaskStatus_t*) app->status.tasks,
-                sizeof(app->status.tasks) / sizeof(app->status.tasks[0]), NULL);
-#endif
         // update can status
         ESP_ERROR_CHECK(twai_get_status_info((twai_status_info_t*) &app->status.can));
         // print app data to uart
