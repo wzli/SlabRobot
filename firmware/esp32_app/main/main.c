@@ -7,6 +7,7 @@
 #include "esp_timer.h"
 #include "esp_vfs_fat.h"
 #include "esp_wifi.h"
+#include "esp_http_server.h"
 #include "esp_bt_device.h"
 #include "lwip/sockets.h"
 #include "driver/i2c.h"
@@ -76,7 +77,7 @@ static const wifi_ap_config_t WIFI_AP_CONFIG = {
         .authmode = WIFI_AUTH_OPEN,
 };
 
-static const uint16_t udp_port = 9870;
+static const uint16_t UDP_PORT = 9870;
 
 //------------------------------------------------------------------------------
 // typedefs
@@ -223,6 +224,32 @@ static int dir_create(const char* dir_name) {
     }
     ESP_LOGI(pcTaskGetName(NULL), "f_mkdir sdcard/%s success", text_buf);
     return dir_idx;
+}
+
+static int print_heap_info(char* buf, const char* name, uint32_t capabilities) {
+    multi_heap_info_t heap_info;
+    heap_caps_get_info(&heap_info, capabilities);
+    return sprintf(buf,
+            "\n%s Heap Info\n"
+            "total free bytes \t\t%d\n"
+            "total allocated bytes \t\t%d\n"
+            "largest free block \t\t%d\n"
+            "minimum free bytes \t\t%d\n"
+            "allocated blocks \t\t%d\n"
+            "free blocks \t\t\t%d\n"
+            "total blocks \t\t\t%d\n",
+            name, heap_info.total_free_bytes, heap_info.total_allocated_bytes,
+            heap_info.largest_free_block, heap_info.minimum_free_bytes, heap_info.allocated_blocks,
+            heap_info.free_blocks, heap_info.total_blocks);
+}
+
+static esp_err_t parse_request_param(httpd_req_t* req, const char* param_name, char* param) {
+    size_t buf_len = httpd_req_get_url_query_len(req) + 1;
+    if (buf_len < 2 || (httpd_req_get_url_query_str(req, param, buf_len) != ESP_OK) ||
+            (httpd_query_key_value(param, param_name, param, 32) != ESP_OK)) {
+        return ESP_FAIL;
+    }
+    return ESP_OK;
 }
 
 //------------------------------------------------------------------------------
@@ -531,11 +558,12 @@ static void monitor_loop(void* pvParameters) {
     struct sockaddr_in DST_ADDR = {
             .sin_family = AF_INET,
             .sin_addr.s_addr = htonl(INADDR_BROADCAST),
-            .sin_port = htons(udp_port),
+            .sin_port = htons(UDP_PORT),
     };
     int sock = socket(AF_INET, SOCK_DGRAM, 0);
     int val = 1;
     ESP_ERROR_CHECK(setsockopt(sock, SOL_SOCKET, SO_BROADCAST, (char*) &val, sizeof(val)));
+    ESP_LOGI(pcTaskGetName(NULL), "UDP broadcast on port %u", UDP_PORT);
 
     // monitor loops at a lower frequency
     for (app->status.tick = xTaskGetTickCount();; vTaskDelayUntil(&app->status.tick, 5)) {
@@ -565,6 +593,67 @@ static void monitor_loop(void* pvParameters) {
             ESP_ERROR_CHECK_WITHOUT_ABORT(f_sync(csv_log));
         }
     }
+}
+
+//------------------------------------------------------------------------------
+// http request handlers
+
+static SlabConfig* slab_config;
+
+static esp_err_t config_request_handler(httpd_req_t* req) {
+    char text_buf[1024];
+    float* param = (float*) req->user_ctx;
+    if (param) {
+        if (ESP_OK != parse_request_param(req, "val", text_buf)) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "URI param 'val' required");
+            return ESP_FAIL;
+        }
+        *param = strtof(text_buf, NULL);
+    }
+    int len = SlabConfig_to_json(slab_config, text_buf);
+    assert(len < sizeof(text_buf));
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    return httpd_resp_send(req, text_buf, len);
+}
+
+static esp_err_t status_request_handler(httpd_req_t* req) {
+    char text_buf[4096];
+    int len = App_to_json(req->user_ctx, text_buf);
+    assert(len < sizeof(text_buf));
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    return httpd_resp_send(req, text_buf, len);
+}
+
+static esp_err_t tasks_request_handler(httpd_req_t* req) {
+    char text_buf[1024];
+    httpd_resp_set_type(req, "text/plain");
+#if defined(CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS) && \
+        defined(CONFIG_FREERTOS_USE_STATS_FORMATTING_FUNCTIONS)
+    static const char TASK_LIST_HEADER[] =
+            "Task Name       State   Pri     Stack   Num     CoreId\n";
+    httpd_resp_send_chunk(req, TASK_LIST_HEADER, sizeof(TASK_LIST_HEADER) - 1);
+    vTaskList(text_buf);
+    httpd_resp_send_chunk(req, text_buf, strlen(text_buf));
+    static const char TASK_RUNTIME_STATS_HEADER[] = "\nTask Name       Abs Time        % Time\n";
+    httpd_resp_send_chunk(req, TASK_RUNTIME_STATS_HEADER, sizeof(TASK_RUNTIME_STATS_HEADER) - 1);
+    vTaskGetRunTimeStats(text_buf);
+    httpd_resp_send_chunk(req, text_buf, strlen(text_buf));
+#endif
+    int stat_len = print_heap_info(text_buf, "Internal", MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    httpd_resp_send_chunk(req, text_buf, stat_len);
+#if defined(CONFIG_SPIRAM_SUPPORT)
+    stat_len = print_heap_info(text_buf, "SPIRAM", MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    httpd_resp_send_chunk(req, text_buf, stat_len);
+#endif
+    return httpd_resp_send_chunk(req, NULL, 0);
+}
+
+static esp_err_t index_request_handler(httpd_req_t* req) {
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    return httpd_resp_send(req, req->user_ctx, strlen(req->user_ctx));
 }
 
 //------------------------------------------------------------------------------
@@ -638,6 +727,38 @@ static void sdcard_init() {
             esp_vfs_fat_sdmmc_mount("/sdcard", &host, &slot_config, &mount_config, &card));
 }
 
+static void httpd_init(App* app) {
+#define SET_PARAM_URI(PARAM) \
+    {"/" #PARAM, HTTP_GET, config_request_handler, &app->slab.config.PARAM}
+    slab_config = &app->slab.config;
+    char* index_page = malloc(1024);
+    httpd_uri_t uris[] = {
+            SET_PARAM_URI(ground_rise_threshold),
+            SET_PARAM_URI(ground_fall_threshold),
+            SET_PARAM_URI(incline_p_gain),
+            SET_PARAM_URI(speed_p_gain),
+            SET_PARAM_URI(speed_i_gain),
+            {"/config", HTTP_GET, config_request_handler, NULL},
+            {"/status", HTTP_GET, status_request_handler, app},
+            {"/tasks", HTTP_GET, tasks_request_handler, NULL},
+            {"/", HTTP_GET, index_request_handler, index_page},
+    };
+    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+    config.core_id = 0;
+    config.stack_size = 4 * 2048;
+    config.max_uri_handlers = sizeof(uris) / sizeof(httpd_uri_t);
+    httpd_handle_t httpd;
+    ESP_ERROR_CHECK(httpd_start(&httpd, &config));
+    ESP_LOGI(pcTaskGetName(NULL), "HTTP server on 'http://192.168.4.1:%d'", config.server_port);
+    index_page += sprintf(index_page, "{\n  \"URIs\": [");
+    for (int i = 0; i < config.max_uri_handlers; ++i) {
+        ESP_ERROR_CHECK(httpd_register_uri_handler(httpd, uris + i));
+        ESP_LOGI(pcTaskGetName(NULL), "URI handler at %s", uris[i].uri);
+        index_page += sprintf(index_page, "\n    \"%s\",", uris[i].uri);
+    }
+    sprintf(index_page - 1, "\n  ]\n}");
+}
+
 void app_main(void) {
     // init peripherals
     can_init();
@@ -651,14 +772,15 @@ void app_main(void) {
     app.slab.config = SLAB_CONFIG;
     app.imu = imu_create();
     motors_init(&app);
+    httpd_init(&app);
     ps3SetEventObjectCallback(&app, gamepad_callback);
     esp_log_level_set("PS3_L2CAP", ESP_LOG_WARN);
     app.dir_idx = dir_create("slab");
     // init tasks
     RTOS_ERROR_CHECK(xTaskCreatePinnedToCore(
-            monitor_loop, "monitor_loop", 8 * 2048, &app, 1, &app.monitor_task, 0));
+            monitor_loop, "monitor_loop", 2 * 2048, &app, 1, &app.monitor_task, 0));
     RTOS_ERROR_CHECK(xTaskCreatePinnedToCore(
-            control_loop, "control_loop", 8 * 2048, &app, 9, &app.control_task, 1));
+            control_loop, "control_loop", 2 * 2048, &app, 9, &app.control_task, 1));
     app.heartbeat_timer = xTimerCreate(
             "heartbeat_timer", LED_HEARTBEAT_DOT_TICKS, true, &app, led_heartbeat_callback);
     assert(app.heartbeat_timer);
