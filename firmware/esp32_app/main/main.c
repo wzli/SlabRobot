@@ -22,6 +22,18 @@
 #include "slab.h"
 
 //------------------------------------------------------------------------------
+// custom ODrive commands
+
+// take single float input
+#define ODRIVE_CMD_SET_POS_GAIN 0x1A
+#define ODRIVE_CMD_SET_VEL_GAIN 0x1B
+#define ODRIVE_CMD_SET_VEL_INTEGRATOR_GAIN 0x1C
+#define ODRIVE_CMD_SET_CURRENT_CTRL_BW 0x1D
+#define ODRIVE_CMD_SET_ENCODER_BW 0x1E
+
+#define ODRIVE_CMD_SET_SAVE_CONFIGURATION 0x20
+
+//------------------------------------------------------------------------------
 // constants
 
 #define PIN_LED 33
@@ -128,7 +140,12 @@ MXGEN(struct, CanStatus)
     _(int32_t, encoder_shadow_count, ) \
     _(int32_t, encoder_count_cpr, )    \
     X(float, encoder_position, )       \
-    X(float, encoder_velocity, )
+    X(float, encoder_velocity, )       \
+    _(float, sensorless_position, )    \
+    _(float, sensorless_velocity, )    \
+    X(float, current_setpoint, )       \
+    X(float, current_measured, )       \
+    _(float, vbus_voltage, )
 MXGEN(struct, ODriveStatus)
 
 #define TYPEDEF_MotorStatus(X, _) \
@@ -387,13 +404,6 @@ static esp_err_t motors_feedback_update(App* app) {
     return rx_error;
 }
 
-static esp_err_t motors_error_request(uint32_t tick) {
-    // send a different error request command every tick
-    uint8_t axis_id = (tick / 2) % N_MOTORS;
-    uint8_t cmd_id = tick & 1 ? ODRIVE_CMD_GET_MOTOR_ERROR : ODRIVE_CMD_GET_ENCODER_ERROR;
-    return odrive_send_get_command(axis_id, cmd_id);
-}
-
 static void motors_clear_errors(App* app) {
     app->status.error.flags.motor_error = false;
     app->status.error.flags.can_error = false;
@@ -467,7 +477,6 @@ static void control_loop(void* pvParameters) {
     for (TickType_t tick = xTaskGetTickCount();; vTaskDelayUntil(&tick, 1)) {
         uint32_t prev_error_code = app->status.error.code;
         // fetch motor updates
-        CAN_ERROR_CHECK(app, motors_error_request(tick));
         CAN_ERROR_CHECK(app, motors_feedback_update(app));
         // fetch imu updates
         app->status.error.flags.imu_comms_timeout =
@@ -587,6 +596,38 @@ static esp_err_t config_request_handler(httpd_req_t* req) {
     return httpd_resp_send(req, text_buf, len);
 }
 
+static esp_err_t odrive_config_request_handler(httpd_req_t* req) {
+    char text_buf[1024];
+    if (ESP_OK != parse_request_param(req, "id", text_buf)) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "URI param 'id' required");
+        return ESP_FAIL;
+    }
+    int axis_id = atoi(text_buf);
+    if (axis_id < 0 || axis_id >= N_MOTORS) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "URI param 'id' out of range");
+        return ESP_FAIL;
+    }
+    int cmd_id = (int) req->user_ctx;
+    if (cmd_id == ODRIVE_CMD_SET_SAVE_CONFIGURATION) {
+        if (ESP_OK != odrive_send_command(axis_id, cmd_id, NULL, 0)) {
+            httpd_resp_send_500(req);
+            return ESP_FAIL;
+        }
+    } else {
+        if (ESP_OK != parse_request_param(req, "val", text_buf)) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "URI param 'val' required");
+            return ESP_FAIL;
+        }
+        float val = strtof(text_buf, NULL);
+        if (ESP_OK != odrive_send_command(axis_id, cmd_id, &val, sizeof(val))) {
+            httpd_resp_send_500(req);
+            return ESP_FAIL;
+        }
+    }
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    return httpd_resp_send(req, "ODrive command sent", 19);
+}
+
 static esp_err_t status_request_handler(httpd_req_t* req) {
     char text_buf[4096];
     int len = App_to_json(req->user_ctx, text_buf);
@@ -698,11 +739,19 @@ static void sdcard_init() {
 }
 
 static void httpd_init(App* app) {
+#define SET_ODRIVE_PARAM_URI(PARAM) \
+    { "/" #PARAM, HTTP_GET, odrive_config_request_handler, (void*) ODRIVE_CMD_SET_##PARAM }
 #define SET_PARAM_URI(PARAM) \
     {"/" #PARAM, HTTP_GET, config_request_handler, &app->slab.config.PARAM}
     slab_config = &app->slab.config;
     char* index_page = malloc(1024);
     httpd_uri_t uris[] = {
+            SET_ODRIVE_PARAM_URI(POS_GAIN),
+            SET_ODRIVE_PARAM_URI(VEL_GAIN),
+            SET_ODRIVE_PARAM_URI(VEL_INTEGRATOR_GAIN),
+            SET_ODRIVE_PARAM_URI(CURRENT_CTRL_BW),
+            SET_ODRIVE_PARAM_URI(ENCODER_BW),
+            SET_ODRIVE_PARAM_URI(SAVE_CONFIGURATION),
             SET_PARAM_URI(ground_rise_threshold),
             SET_PARAM_URI(ground_fall_threshold),
             SET_PARAM_URI(incline_p_gain),
