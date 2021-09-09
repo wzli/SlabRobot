@@ -267,10 +267,10 @@ static void motors_homing_request(App* app) {
                 app->status.motors[i].status.axis_state != state) {
             CAN_ERROR_CHECK(app,
                     odrive_send_command(i, ODRIVE_CMD_SET_REQUESTED_STATE, &state, sizeof(state)));
+            // start homing timer to detect timeout
+            RTOS_ERROR_CHECK(xTimerStart(app->homing_timer, 0));
         }
     }
-    // start homing timer to detect timeout
-    RTOS_ERROR_CHECK(xTimerStart(app->homing_timer, 0));
 }
 
 static void motors_homing_complete_callback(
@@ -440,7 +440,7 @@ static void led_heartbeat_callback(TimerHandle_t timer) {
     app->led_pattern >>= 1;
 }
 
-static void gamepad_callback(void* pvParameters, ps3_t ps3_state, ps3_event_t ps3_event) {
+static void ps3_gamepad_callback(void* pvParameters, ps3_t ps3_state, ps3_event_t ps3_event) {
     App* app = (App*) pvParameters;
     // parse gamepad message
     GamepadMsg* gamepad = &app->status.gamepad;
@@ -453,10 +453,6 @@ static void gamepad_callback(void* pvParameters, ps3_t ps3_state, ps3_event_t ps
     gamepad->right_trigger = ps3_state.analog.button.r2;
     // update timestamp
     app->status.gamepad_timestamp = xTaskGetTickCount();
-    // press PS home button to send homing request
-    if (ps3_state.button.ps) {
-        motors_homing_request(app);
-    }
     // flip balance trigger
     gamepad->buttons ^= GAMEPAD_BUTTON_L1;
 }
@@ -492,10 +488,11 @@ static void control_loop(void* pvParameters) {
             if (app->status.gamepad.buttons & GAMEPAD_BUTTON_SELECT) {
                 app->status.error.flags.estop = true;
             }
-            // press start button to clear errors
+            // press start button to clear errors and trigger homing if not already homed
             if (app->status.gamepad.buttons & GAMEPAD_BUTTON_START) {
                 app->status.error.flags.estop = false;
                 motors_clear_errors(app);
+                motors_homing_request(app);
             }
             // set controller LED when error state changes
             if (app->status.error.code != prev_error_code) {
@@ -746,7 +743,7 @@ void app_main(void) {
     app.imu = imu_create();
     motors_init(&app);
     httpd_init(&app);
-    ps3SetEventObjectCallback(&app, gamepad_callback);
+    ps3SetEventObjectCallback(&app, ps3_gamepad_callback);
     esp_log_level_set("PS3_L2CAP", ESP_LOG_WARN);
     app.dir_idx = dir_create("slab");
     // init tasks
