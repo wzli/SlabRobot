@@ -3,7 +3,7 @@
 import pybullet as p
 import pybullet_data
 import math
-import cbor
+import json
 import socket
 import time
 import inputs, os, io, fcntl
@@ -23,9 +23,7 @@ def ctype_to_dict(x):
 class Simulation:
     def __init__(self):
         # udp socket
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         # input
         self.init_inputs()
         # pybullet setup
@@ -236,13 +234,13 @@ class Simulation:
     def update_slab(self):
         if self.steps % self.step_divider > 0:
             return
-        self.slab.tick = self.steps // self.step_divider
+        self.slab.timestamp = self.steps / 240
         self.update_imu()
         self.update_motors()
         libslab_py.slab_update(ctypes.byref(self.slab))
-        # self.sock.sendto(cbor.dumps(ctype_to_dict(self.slab)), ("localhost", 9870))
-        for key, value in ctype_to_dict(self.slab).items():
-            self.sock.sendto(cbor.dumps({key: value}), ("localhost", 9870))
+        self.sock.sendto(
+            json.dumps(ctype_to_dict(self.slab)).encode(), ("localhost", 9870)
+        )
 
     def run(self):
         while True:

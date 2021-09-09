@@ -63,9 +63,9 @@ static const SlabConfig SLAB_CONFIG = {
         .joystick_threshold = 10,       // 0 - 255
         .ground_rise_threshold = 0.08,  // m
         .ground_fall_threshold = 0.04,  // m
-        .incline_p_gain = 40.0f,
-        //.speed_p_gain = 0.6f,
-        //.speed_i_gain = 0.003f,
+        .incline_p_gain = 65.0f,
+        .speed_p_gain = 0.3f,
+        .speed_i_gain = 0.0005f,
 };
 
 static const wifi_ap_config_t WIFI_AP_CONFIG = {
@@ -137,7 +137,6 @@ MXGEN(struct, ODriveStatus)
 MXGEN(union, MotorStatus)
 
 #define TYPEDEF_AppStatus(X, _)                     \
-    X(uint32_t, tick, )                             \
     X(CanStatus, can, )                             \
     X(MotorStatus, motors, [N_MOTORS])              \
     X(ErrorCounter, motor_comms_missed, [N_MOTORS]) \
@@ -149,6 +148,7 @@ MXGEN(struct, AppStatus)
 typedef struct Imu Imu;
 
 #define TYPEDEF_App(X, _)               \
+    X(double, timestamp, )              \
     _(uint64_t, led_pattern, )          \
     _(int32_t, dir_idx, )               \
     _(TaskHandle_t, control_task, )     \
@@ -514,7 +514,7 @@ static void control_loop(void* pvParameters) {
         }
         // run control logic only when error-free
         else {
-            app->slab.tick = tick;
+            app->slab.timestamp = (double) tick / configTICK_RATE_HZ;
             slab_update(&app->slab);
             motors_input_update(app);
         }
@@ -550,7 +550,8 @@ static void monitor_loop(void* pvParameters) {
     ESP_LOGI(pcTaskGetName(NULL), "UDP broadcast on port %u", UDP_PORT);
 
     // monitor loops at a lower frequency
-    for (app->status.tick = xTaskGetTickCount();; vTaskDelayUntil(&app->status.tick, 5)) {
+    for (TickType_t tick = xTaskGetTickCount();; vTaskDelayUntil(&tick, 5)) {
+        app->timestamp = (double) tick / configTICK_RATE_HZ;
         // update can status
         ESP_ERROR_CHECK(twai_get_status_info((twai_status_info_t*) &app->status.can));
         // print app data to uart

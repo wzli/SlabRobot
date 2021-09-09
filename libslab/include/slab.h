@@ -60,7 +60,7 @@ MXGEN(struct, SlabInput)
 MXGEN(struct, SlabState)
 
 #define TYPEDEF_Slab(X, _)   \
-    X(uint32_t, tick, )      \
+    X(double, timestamp, )   \
     X(MotorMsg, motors, [6]) \
     X(ImuMsg, imu, )         \
     X(GamepadMsg, gamepad, ) \
