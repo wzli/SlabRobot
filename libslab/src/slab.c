@@ -12,101 +12,6 @@ static void axis_remap(Vector3F* out, const Vector3F* in, const int8_t* remap) {
     }
 }
 
-static void slab_gamepad_input_update(Slab* slab) {
-    enum { X, Y, RX, RY };
-    // parse stick to [lx, ly, rx, ry] normalized to 1
-    float sticks[4] = {0};
-    for (int i = 0; i < 4; ++i) {
-        if (ABS((&slab->gamepad.left_stick.x)[i]) >= slab->config.joystick_threshold) {
-            sticks[i] = -((&slab->gamepad.left_stick.x)[i] + 0.5f) / 127.5f;
-        }
-    }
-    // parse buttons to axis vector
-    float buttons[4] = {(bool) (slab->gamepad.buttons & GAMEPAD_BUTTON_LEFT) -
-                                (bool) (slab->gamepad.buttons & GAMEPAD_BUTTON_RIGHT),
-            (bool) (slab->gamepad.buttons & GAMEPAD_BUTTON_UP) -
-                    (bool) (slab->gamepad.buttons & GAMEPAD_BUTTON_DOWN),
-            (bool) (slab->gamepad.buttons & GAMEPAD_BUTTON_SQUARE) -
-                    (bool) (slab->gamepad.buttons & GAMEPAD_BUTTON_CIRCLE),
-            (bool) (slab->gamepad.buttons & GAMEPAD_BUTTON_TRIANGLE) -
-                    (bool) (slab->gamepad.buttons & GAMEPAD_BUTTON_CROSS)};
-    // normalize button axis and scale by trigger
-    for (int i = 0; i < 2; ++i) {
-        float* axis = buttons + (2 * i);
-        if (axis[X] != 0 && axis[Y] != 0) {
-            float inv_norm = 1.0f / vec_norm(axis, 2);
-            axis[X] *= inv_norm;
-            axis[Y] *= inv_norm;
-        }
-        float trigger = (&slab->gamepad.left_trigger)[i] / 255.0f;
-        axis[X] *= trigger;
-        axis[Y] *= trigger;
-    }
-    // disable balance control with L1
-    slab->input.balance_enable = !(slab->gamepad.buttons & GAMEPAD_BUTTON_L1);
-    // scale velocity input to max wheel speed
-    float speed_scale = 0.5f * slab->config.wheel_diameter * slab->config.max_wheel_speed;
-    if (slab->state.balance_active) {
-        speed_scale /= 4;
-    }
-    // map L-stick to velocity input (dpad overrides stick)
-    float* velocity_input = buttons[X] == 0 && buttons[Y] == 0 ? sticks : buttons;
-    slab->input.linear_velocity = velocity_input[Y] * speed_scale;
-    slab->input.angular_velocity =
-            velocity_input[X] * speed_scale / (0.5f * slab->config.wheel_distance);
-    // map R-stick to velocity input (button overrides stick)
-    float* legs_input = (buttons[RX] == 0 && buttons[RY] == 0 ? sticks : buttons) + 2;
-    // leg position control logic
-    const float leg_speed = 0.02f;
-    for (int i = 0, sign = -1; i < 2; ++i, sign *= -1) {
-        // holding R1 targets preset angles
-        if (slab->gamepad.buttons & GAMEPAD_BUTTON_R1) {
-            // exclude the leg that the robot is balancing on
-            if (slab->state.balance_active && slab->state.ground_contacts == (1 << i)) {
-                continue;
-            }
-            // if input lies in horizontal vs vertical regions
-            if (SQR(legs_input[X]) > SQR(legs_input[Y])) {
-                // target PI angle presets (fold down)
-                LOW_PASS_FILTER(slab->input.leg_positions[i], SGN(legs_input[X]) * M_PI,
-                        leg_speed * ABS(legs_input[X]));
-                // target vertical body incline (only effective when balancing)
-                LOW_PASS_FILTER(slab->input.body_incline, SGN(slab->input.body_incline) * M_PI_2,
-                        leg_speed * ABS(legs_input[X]));
-            } else {
-                // target PI/2 angle presets (right angle)
-                LOW_PASS_FILTER(slab->input.leg_positions[i], sign * SGN(legs_input[Y]) * M_PI_2,
-                        leg_speed * ABS(legs_input[Y]));
-                // target horizontal body incline (only effective when balancing)
-                LOW_PASS_FILTER(slab->input.body_incline,
-                        (SGN(slab->input.body_incline) + sign * SGN(legs_input[Y])) * M_PI_2,
-                        0.5f * leg_speed * ABS(legs_input[Y]));
-            }
-        }
-        // R1 released for direct control
-        else {
-            // map X to arm and Y to incline during balance
-            if (slab->state.balance_active) {
-                // remap controls of balancing leg to body incline
-                if (slab->state.ground_contacts == (1 << i)) {
-                    slab->input.body_incline -= 0.5f * leg_speed * legs_input[Y];
-                    slab->input.body_incline = CLAMP(slab->input.body_incline, -M_PI, M_PI);
-                    // compensate balancing leg toward the direction of the incline movement
-                    slab->input.leg_positions[i] += leg_speed * legs_input[Y];
-                } else {
-                    slab->input.leg_positions[i] += leg_speed * legs_input[X];
-                }
-            } else {
-                // map legs movement to diagonal axis
-                slab->input.leg_positions[i] += leg_speed * (legs_input[X] + legs_input[Y] * sign);
-            }
-            // clamp leg positions
-            slab->input.leg_positions[i] = CLAMP(slab->input.leg_positions[i],
-                    slab->config.min_leg_position, slab->config.max_leg_position);
-        }
-    }
-}
-
 static void slab_differential_drive_update(Slab* slab, float v_lin, float v_ang) {
     const float r = slab->config.wheel_diameter / 2;
     const float R = slab->config.wheel_distance / 2;
@@ -225,10 +130,104 @@ static void slab_state_update(Slab* slab) {
     }
 }
 
+void slab_gamepad_input_update(Slab* slab, const GamepadMsg* gamepad) {
+    enum { X, Y, RX, RY };
+    // parse stick to [lx, ly, rx, ry] normalized to 1
+    float sticks[4] = {0};
+    for (int i = 0; i < 4; ++i) {
+        if (ABS((&gamepad->left_stick.x)[i]) >= slab->config.joystick_threshold) {
+            sticks[i] = -((&gamepad->left_stick.x)[i] + 0.5f) / 127.5f;
+        }
+    }
+    // parse buttons to axis vector
+    float buttons[4] = {(bool) (gamepad->buttons & GAMEPAD_BUTTON_LEFT) -
+                                (bool) (gamepad->buttons & GAMEPAD_BUTTON_RIGHT),
+            (bool) (gamepad->buttons & GAMEPAD_BUTTON_UP) -
+                    (bool) (gamepad->buttons & GAMEPAD_BUTTON_DOWN),
+            (bool) (gamepad->buttons & GAMEPAD_BUTTON_SQUARE) -
+                    (bool) (gamepad->buttons & GAMEPAD_BUTTON_CIRCLE),
+            (bool) (gamepad->buttons & GAMEPAD_BUTTON_TRIANGLE) -
+                    (bool) (gamepad->buttons & GAMEPAD_BUTTON_CROSS)};
+    // normalize button axis and scale by trigger
+    for (int i = 0; i < 2; ++i) {
+        float* axis = buttons + (2 * i);
+        if (axis[X] != 0 && axis[Y] != 0) {
+            float inv_norm = 1.0f / vec_norm(axis, 2);
+            axis[X] *= inv_norm;
+            axis[Y] *= inv_norm;
+        }
+        float trigger = (&gamepad->left_trigger)[i] / 255.0f;
+        axis[X] *= trigger;
+        axis[Y] *= trigger;
+    }
+    // disable balance control with L1
+    slab->input.balance_enable = !(gamepad->buttons & GAMEPAD_BUTTON_L1);
+    // scale velocity input to max wheel speed
+    float speed_scale = 0.5f * slab->config.wheel_diameter * slab->config.max_wheel_speed;
+    if (slab->state.balance_active) {
+        speed_scale /= 4;
+    }
+    // map L-stick to velocity input (dpad overrides stick)
+    float* velocity_input = buttons[X] == 0 && buttons[Y] == 0 ? sticks : buttons;
+    slab->input.linear_velocity = velocity_input[Y] * speed_scale;
+    slab->input.angular_velocity =
+            velocity_input[X] * speed_scale / (0.5f * slab->config.wheel_distance);
+    // map R-stick to velocity input (button overrides stick)
+    float* legs_input = (buttons[RX] == 0 && buttons[RY] == 0 ? sticks : buttons) + 2;
+    // leg position control logic
+    const float leg_speed = 0.02f;
+    for (int i = 0, sign = -1; i < 2; ++i, sign *= -1) {
+        // holding R1 targets preset angles
+        if (gamepad->buttons & GAMEPAD_BUTTON_R1) {
+            // exclude the leg that the robot is balancing on
+            if (slab->state.balance_active && slab->state.ground_contacts == (1 << i)) {
+                continue;
+            }
+            // if input lies in horizontal vs vertical regions
+            if (SQR(legs_input[X]) > SQR(legs_input[Y])) {
+                // target PI angle presets (fold down)
+                LOW_PASS_FILTER(slab->input.leg_positions[i], SGN(legs_input[X]) * M_PI,
+                        leg_speed * ABS(legs_input[X]));
+                // target vertical body incline (only effective when balancing)
+                LOW_PASS_FILTER(slab->input.body_incline, SGN(slab->input.body_incline) * M_PI_2,
+                        leg_speed * ABS(legs_input[X]));
+            } else {
+                // target PI/2 angle presets (right angle)
+                LOW_PASS_FILTER(slab->input.leg_positions[i], sign * SGN(legs_input[Y]) * M_PI_2,
+                        leg_speed * ABS(legs_input[Y]));
+                // target horizontal body incline (only effective when balancing)
+                LOW_PASS_FILTER(slab->input.body_incline,
+                        (SGN(slab->input.body_incline) + sign * SGN(legs_input[Y])) * M_PI_2,
+                        0.5f * leg_speed * ABS(legs_input[Y]));
+            }
+        }
+        // R1 released for direct control
+        else {
+            // map X to arm and Y to incline during balance
+            if (slab->state.balance_active) {
+                // remap controls of balancing leg to body incline
+                if (slab->state.ground_contacts == (1 << i)) {
+                    slab->input.body_incline -= 0.5f * leg_speed * legs_input[Y];
+                    slab->input.body_incline = CLAMP(slab->input.body_incline, -M_PI, M_PI);
+                    // compensate balancing leg toward the direction of the incline movement
+                    slab->input.leg_positions[i] += leg_speed * legs_input[Y];
+                } else {
+                    slab->input.leg_positions[i] += leg_speed * legs_input[X];
+                }
+            } else {
+                // map legs movement to diagonal axis
+                slab->input.leg_positions[i] += leg_speed * (legs_input[X] + legs_input[Y] * sign);
+            }
+            // clamp leg positions
+            slab->input.leg_positions[i] = CLAMP(slab->input.leg_positions[i],
+                    slab->config.min_leg_position, slab->config.max_leg_position);
+        }
+    }
+}
+
 void slab_update(Slab* slab) {
     assert(slab);
     slab_state_update(slab);
-    slab_gamepad_input_update(slab);
     if (slab->state.balance_active) {
         slab_balance_controller_update(slab);
     } else {

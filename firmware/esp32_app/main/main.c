@@ -141,6 +141,7 @@ MXGEN(union, MotorStatus)
     X(MotorStatus, motors, [N_MOTORS])              \
     X(ErrorCounter, motor_comms_missed, [N_MOTORS]) \
     X(ErrorCounter, imu_comms_missed, )             \
+    X(GamepadMsg, gamepad, )                        \
     X(uint32_t, gamepad_timestamp, )                \
     X(AppError, error, )
 MXGEN(struct, AppStatus)
@@ -442,7 +443,7 @@ static void led_heartbeat_callback(TimerHandle_t timer) {
 static void gamepad_callback(void* pvParameters, ps3_t ps3_state, ps3_event_t ps3_event) {
     App* app = (App*) pvParameters;
     // parse gamepad message
-    GamepadMsg* gamepad = &app->slab.gamepad;
+    GamepadMsg* gamepad = &app->status.gamepad;
     memcpy(&gamepad->buttons, &ps3_state.button, 2);
     gamepad->left_stick.x = ps3_state.analog.stick.lx;
     gamepad->left_stick.y = ps3_state.analog.stick.ly;
@@ -483,16 +484,16 @@ static void control_loop(void* pvParameters) {
                 tick > app->status.gamepad_timestamp + GAMEPAD_COMMS_TIMEOUT_TICKS;
         // reset gamepad input on timeout
         if (app->status.error.flags.gamepad_comms_timeout) {
-            app->slab.gamepad = (GamepadMsg){0};
+            app->status.gamepad = (GamepadMsg){0};
         }
         // else if gamepad is connected
         else {
             // press select button to trigger estop
-            if (app->slab.gamepad.buttons & GAMEPAD_BUTTON_SELECT) {
+            if (app->status.gamepad.buttons & GAMEPAD_BUTTON_SELECT) {
                 app->status.error.flags.estop = true;
             }
             // press start button to clear errors
-            if (app->slab.gamepad.buttons & GAMEPAD_BUTTON_START) {
+            if (app->status.gamepad.buttons & GAMEPAD_BUTTON_START) {
                 app->status.error.flags.estop = false;
                 motors_clear_errors(app);
             }
@@ -515,6 +516,7 @@ static void control_loop(void* pvParameters) {
         // run control logic only when error-free
         else {
             app->slab.timestamp = (double) tick / configTICK_RATE_HZ;
+            slab_gamepad_input_update(&app->slab, &app->status.gamepad);
             slab_update(&app->slab);
             motors_input_update(app);
         }

@@ -63,10 +63,10 @@ MXGEN(struct, SlabState)
     X(double, timestamp, )   \
     X(MotorMsg, motors, [6]) \
     X(ImuMsg, imu, )         \
-    X(GamepadMsg, gamepad, ) \
     _(SlabConfig, config, )  \
     X(SlabInput, input, )    \
     X(SlabState, state, )
 MXGEN(struct, Slab)
 
 void slab_update(Slab* slab);
+void slab_gamepad_input_update(Slab* slab, const GamepadMsg* gamepad);
