@@ -4,7 +4,6 @@
 
 #include "esp_err.h"
 #include "esp_log.h"
-#include "esp_timer.h"
 #include "esp_vfs_fat.h"
 #include "esp_wifi.h"
 #include "esp_http_server.h"
@@ -77,7 +76,8 @@ static const wifi_ap_config_t WIFI_AP_CONFIG = {
         .authmode = WIFI_AUTH_OPEN,
 };
 
-static const uint16_t UDP_PORT = 9870;
+static const uint16_t UDP_OUT_PORT = 9870;
+static const uint16_t UDP_IN_PORT = 9871;
 
 //------------------------------------------------------------------------------
 // typedefs
@@ -459,6 +459,16 @@ static void ps3_gamepad_callback(void* pvParameters, ps3_t ps3_state, ps3_event_
 
 static void control_loop(void* pvParameters) {
     App* app = (App*) pvParameters;
+    // inbound udp port
+    uint8_t rx_buf[16];
+    struct sockaddr_in DST_ADDR = {
+            .sin_family = AF_INET,
+            .sin_addr.s_addr = htonl(INADDR_ANY),
+            .sin_port = htons(UDP_IN_PORT),
+    };
+    int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+    ESP_ERROR_CHECK(fcntl(sock, F_SETFL, O_NONBLOCK));
+    ESP_ERROR_CHECK(bind(sock, (struct sockaddr*) &DST_ADDR, sizeof(DST_ADDR)));
     // match IMU DMP output rate of 100Hz
     // ODrive encoder updates also configured to 100Hz
     for (TickType_t tick = xTaskGetTickCount();; vTaskDelayUntil(&tick, 1)) {
@@ -474,6 +484,14 @@ static void control_loop(void* pvParameters) {
         if (app->status.error.flags.imu_comms_timeout) {
             app->slab.imu.linear_acceleration = (Vector3F){0};
             app->slab.imu.angular_velocity = (Vector3F){0};
+        }
+        // check for received gamepad message on UDP port
+        if (recv(sock, rx_buf, sizeof(rx_buf), 0) == 8) {
+            GamepadMsg_deserialize(&app->status.gamepad, rx_buf);
+            // update timestamp
+            app->status.gamepad_timestamp = xTaskGetTickCount();
+            // flip balance trigger
+            app->status.gamepad.buttons ^= GAMEPAD_BUTTON_L1;
         }
         // detect gamepad communication timeout
         app->status.error.flags.gamepad_comms_timeout =
@@ -541,12 +559,12 @@ static void monitor_loop(void* pvParameters) {
     struct sockaddr_in DST_ADDR = {
             .sin_family = AF_INET,
             .sin_addr.s_addr = htonl(INADDR_BROADCAST),
-            .sin_port = htons(UDP_PORT),
+            .sin_port = htons(UDP_OUT_PORT),
     };
     int sock = socket(AF_INET, SOCK_DGRAM, 0);
     int val = 1;
     ESP_ERROR_CHECK(setsockopt(sock, SOL_SOCKET, SO_BROADCAST, (char*) &val, sizeof(val)));
-    ESP_LOGI(pcTaskGetName(NULL), "UDP broadcast on port %u", UDP_PORT);
+    ESP_LOGI(pcTaskGetName(NULL), "UDP broadcast on port %u", UDP_OUT_PORT);
 
     // monitor loops at a lower frequency
     for (TickType_t tick = xTaskGetTickCount();; vTaskDelayUntil(&tick, 5)) {
