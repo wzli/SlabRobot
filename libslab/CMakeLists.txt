@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 2.8.12)
 
 project(slab)
 
-add_library(${CMAKE_PROJECT_NAME} SHARED src/slab.c)
+add_library(${CMAKE_PROJECT_NAME} SHARED src/slab.c src/py_lib.c)
 target_include_directories(${CMAKE_PROJECT_NAME} PUBLIC include)
 target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE -fPIC -Wall -Wextra -Wpedantic -Wshadow)
 

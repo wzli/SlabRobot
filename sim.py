@@ -3,7 +3,7 @@
 import pybullet as p
 import pybullet_data
 import math
-import cbor
+import json
 import socket
 import time
 import inputs, os, io, fcntl
@@ -23,9 +23,7 @@ def ctype_to_dict(x):
 class Simulation:
     def __init__(self):
         # udp socket
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         # input
         self.init_inputs()
         # pybullet setup
@@ -87,6 +85,7 @@ class Simulation:
         for wheel in self.wheels:
             p.enableJointForceTorqueSensor(self.robot, wheel)
         self.slab = libslab_py.Slab()
+        self.gamepad_msg = libslab_py.GamepadMsg()
         # start with legs folded
         for i, leg in enumerate(self.legs):
             p.resetJointState(self.robot, leg, -math.pi, 0)
@@ -208,7 +207,7 @@ class Simulation:
             if events:
                 for event in events:
                     self.inputs[event.code] = event.state
-        self.slab.gamepad.buttons = (
+        self.gamepad_msg.buttons = (
             (self.inputs.get("BTN_SELECT", 0) * libslab_py.GAMEPAD_BUTTON_SELECT)
             | (self.inputs.get("BTN_THUMBL", 0) * libslab_py.GAMEPAD_BUTTON_L3)
             | (self.inputs.get("BTN_THUMBR", 0) * libslab_py.GAMEPAD_BUTTON_R3)
@@ -226,23 +225,30 @@ class Simulation:
             | (self.inputs.get("BTN_SOUTH", 0) * libslab_py.GAMEPAD_BUTTON_CROSS)
             | (self.inputs.get("BTN_WEST", 0) * libslab_py.GAMEPAD_BUTTON_SQUARE)
         )
-        self.slab.gamepad.left_stick.x = self.inputs.get("ABS_X", 128) - 128
-        self.slab.gamepad.left_stick.y = self.inputs.get("ABS_Y", 128) - 128
-        self.slab.gamepad.right_stick.x = self.inputs.get("ABS_RX", 128) - 128
-        self.slab.gamepad.right_stick.y = self.inputs.get("ABS_RY", 128) - 128
-        self.slab.gamepad.left_trigger = self.inputs.get("ABS_Z", 0)
-        self.slab.gamepad.right_trigger = self.inputs.get("ABS_RZ", 0)
+        self.gamepad_msg.left_stick.x = self.inputs.get("ABS_X", 128) - 128
+        self.gamepad_msg.left_stick.y = self.inputs.get("ABS_Y", 128) - 128
+        self.gamepad_msg.right_stick.x = self.inputs.get("ABS_RX", 128) - 128
+        self.gamepad_msg.right_stick.y = self.inputs.get("ABS_RY", 128) - 128
+        self.gamepad_msg.left_trigger = self.inputs.get("ABS_Z", 0)
+        self.gamepad_msg.right_trigger = self.inputs.get("ABS_RZ", 0)
 
     def update_slab(self):
         if self.steps % self.step_divider > 0:
             return
-        self.slab.tick = self.steps // self.step_divider
+        self.slab.timestamp = self.steps / 240
         self.update_imu()
         self.update_motors()
+        libslab_py.slab_gamepad_input_update(
+            ctypes.byref(self.slab), ctypes.byref(self.gamepad_msg)
+        )
         libslab_py.slab_update(ctypes.byref(self.slab))
-        # self.sock.sendto(cbor.dumps(ctype_to_dict(self.slab)), ("localhost", 9870))
-        for key, value in ctype_to_dict(self.slab).items():
-            self.sock.sendto(cbor.dumps({key: value}), ("localhost", 9870))
+        self.sock.sendto(
+            json.dumps(ctype_to_dict(self.slab)).encode(), ("localhost", 9870)
+        )
+        self.sock.sendto(
+            json.dumps({"gamepad": ctype_to_dict(self.gamepad_msg)}).encode(),
+            ("localhost", 9870),
+        )
 
     def run(self):
         while True:
