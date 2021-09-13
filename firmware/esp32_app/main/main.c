@@ -22,16 +22,6 @@
 #include "slab.h"
 
 //------------------------------------------------------------------------------
-// custom ODrive commands
-
-// take single float input
-#define ODRIVE_CMD_SET_POS_GAIN 0x1A
-#define ODRIVE_CMD_SET_VEL_GAIN 0x1B
-#define ODRIVE_CMD_SET_VEL_INTEGRATOR_GAIN 0x1C
-#define ODRIVE_CMD_SET_CURRENT_CTRL_BW 0x1D
-#define ODRIVE_CMD_SET_ENCODER_BW 0x1E
-
-#define ODRIVE_CMD_SET_SAVE_CONFIGURATION 0x20
 
 //------------------------------------------------------------------------------
 // constants
@@ -135,6 +125,7 @@ MXGEN(struct, CanStatus)
 // keep the same layout as ODriveAxis
 #define TYPEDEF_ODriveStatus(X, _)     \
     X(uint64_t, motor_error, )         \
+    X(uint32_t, odrive_error, )        \
     X(uint32_t, encoder_error, )       \
     _(uint32_t, sensorless_error, )    \
     X(uint32_t, axis_error, )          \
