@@ -42,6 +42,7 @@
 
 #define CAN_BAUD_RATE TWAI_TIMING_CONFIG_1MBITS
 
+#define TELEMETRY_TASK_INTERVAL_TICKS 5
 #define LED_HEARTBEAT_DOT_TICKS 20
 #define MOTOR_HOMING_TIMEOUT_TICKS 50
 #define MOTOR_COMMS_TIMEOUT_TICKS 50
@@ -155,7 +156,7 @@ typedef struct {
     uint64_t led_pattern;
     int32_t dir_idx;
     TaskHandle_t control_task;
-    TaskHandle_t monitor_task;
+    TaskHandle_t telemetry_task;
     TimerHandle_t heartbeat_timer;
     TimerHandle_t homing_timer;
     QueueHandle_t status_queue;
@@ -538,15 +539,20 @@ static void control_loop(void* pvParameters) {
             slab_update(&app->status.slab);
             motors_input_update(app);
         }
+        app->status.timestamp = (double) tick / configTICK_RATE_HZ;
         // append status to queue
         AppStatus* status;
-        RTOS_ERROR_CHECK(xQueueReceive(app->status_queue, &status, 0));
-        *status = app->status;
-        RTOS_ERROR_CHECK(xQueueSendToBack(app->status_queue, &status, 0));
+        if (pdTRUE == xQueueReceive(app->status_queue, &status, 0)) {
+            // update can status
+            ESP_ERROR_CHECK(twai_get_status_info((twai_status_info_t*) &app->status.can));
+            // copy current status to queue
+            *status = app->status;
+            RTOS_ERROR_CHECK(xQueueSendToBack(app->status_queue, &status, 0));
+        };
     }
 }
 
-static void monitor_loop(void* pvParameters) {
+static void telemetry_loop(void* pvParameters) {
     App* app = (App*) pvParameters;
     static char text_buf[4096];
     // check memory layout alignment of reinterpreted structs
@@ -574,19 +580,19 @@ static void monitor_loop(void* pvParameters) {
     ESP_ERROR_CHECK(setsockopt(sock, SOL_SOCKET, SO_BROADCAST, (char*) &val, sizeof(val)));
     ESP_LOGI(pcTaskGetName(NULL), "UDP broadcast on port %u", UDP_OUT_PORT);
 
-    // monitor loops at a lower frequency
-    for (TickType_t tick = xTaskGetTickCount();; vTaskDelayUntil(&tick, 5)) {
+    // telemetry loops at a lower frequency
+    for (TickType_t tick = xTaskGetTickCount();;
+            vTaskDelayUntil(&tick, TELEMETRY_TASK_INTERVAL_TICKS)) {
         AppStatus* status;
-        RTOS_ERROR_CHECK(xQueueReceive(app->status_queue, &status, 0));
-        app->status.timestamp = (double) tick / configTICK_RATE_HZ;
-        // update can status
-        ESP_ERROR_CHECK(twai_get_status_info((twai_status_info_t*) &app->status.can));
-        // print app data to uart
-        int buf_len = AppStatus_to_json(&app->status, text_buf);
+        if (pdFALSE == xQueueReceive(app->status_queue, &status, TELEMETRY_TASK_INTERVAL_TICKS)) {
+            continue;
+        }
+        // broadcast app data over UDP
+        int buf_len = AppStatus_to_json(status, text_buf);
         sendto(sock, text_buf, buf_len, 0, (struct sockaddr*) &DST_ADDR, sizeof(DST_ADDR));
         // log app status as csv entry
         if (csv_log) {
-            int len = AppStatus_to_csv_entry(&app->status, text_buf);
+            int len = AppStatus_to_csv_entry(status, text_buf);
             ESP_ERROR_CHECK_WITHOUT_ABORT(f_write_line(csv_log, text_buf, len));
             ESP_ERROR_CHECK_WITHOUT_ABORT(f_sync(csv_log));
         }
@@ -775,16 +781,14 @@ void app_main(void) {
     ps3SetEventObjectCallback(&app, ps3_gamepad_callback);
     esp_log_level_set("PS3_L2CAP", ESP_LOG_WARN);
     app.dir_idx = dir_create("slab");
-    // init status queues
-    app.status_queue = xQueueCreate(2, sizeof(void*));
-    static AppStatus status_buf[2];
-    for (int i = 0; i < 2; ++i) {
-        AppStatus* status = &status_buf[i];
-        RTOS_ERROR_CHECK(xQueueSendToBack(app.status_queue, &status, 0));
-    }
+    // init status queue
+    app.status_queue = xQueueCreate(1, sizeof(void*));
+    static AppStatus status_buf;
+    AppStatus* status = &status_buf;
+    RTOS_ERROR_CHECK(xQueueSendToBack(app.status_queue, &status, 0));
     // init tasks
     RTOS_ERROR_CHECK(xTaskCreatePinnedToCore(
-            monitor_loop, "monitor_loop", 3 * 2048, &app, 1, &app.monitor_task, 0));
+            telemetry_loop, "telemetry_loop", 3 * 2048, &app, 1, &app.telemetry_task, 0));
     RTOS_ERROR_CHECK(xTaskCreatePinnedToCore(
             control_loop, "control_loop", 3 * 2048, &app, 9, &app.control_task, 1));
     app.heartbeat_timer = xTimerCreate(
