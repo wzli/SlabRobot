@@ -1,6 +1,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/timers.h"
+#include "freertos/queue.h"
 
 #include "esp_err.h"
 #include "esp_log.h"
@@ -157,6 +158,7 @@ typedef struct {
     TaskHandle_t monitor_task;
     TimerHandle_t heartbeat_timer;
     TimerHandle_t homing_timer;
+    QueueHandle_t status_queue;
     Imu* imu;
     AppStatus status;
 } App;
@@ -536,6 +538,11 @@ static void control_loop(void* pvParameters) {
             slab_update(&app->status.slab);
             motors_input_update(app);
         }
+        // append status to queue
+        AppStatus* status;
+        RTOS_ERROR_CHECK(xQueueReceive(app->status_queue, &status, 0));
+        *status = app->status;
+        RTOS_ERROR_CHECK(xQueueSendToBack(app->status_queue, &status, 0));
     }
 }
 
@@ -569,6 +576,8 @@ static void monitor_loop(void* pvParameters) {
 
     // monitor loops at a lower frequency
     for (TickType_t tick = xTaskGetTickCount();; vTaskDelayUntil(&tick, 5)) {
+        AppStatus* status;
+        RTOS_ERROR_CHECK(xQueueReceive(app->status_queue, &status, 0));
         app->status.timestamp = (double) tick / configTICK_RATE_HZ;
         // update can status
         ESP_ERROR_CHECK(twai_get_status_info((twai_status_info_t*) &app->status.can));
@@ -581,6 +590,7 @@ static void monitor_loop(void* pvParameters) {
             ESP_ERROR_CHECK_WITHOUT_ABORT(f_write_line(csv_log, text_buf, len));
             ESP_ERROR_CHECK_WITHOUT_ABORT(f_sync(csv_log));
         }
+        RTOS_ERROR_CHECK(xQueueSendToBack(app->status_queue, &status, 0));
     }
 }
 
@@ -765,6 +775,13 @@ void app_main(void) {
     ps3SetEventObjectCallback(&app, ps3_gamepad_callback);
     esp_log_level_set("PS3_L2CAP", ESP_LOG_WARN);
     app.dir_idx = dir_create("slab");
+    // init status queues
+    app.status_queue = xQueueCreate(2, sizeof(void*));
+    static AppStatus status_buf[2];
+    for (int i = 0; i < 2; ++i) {
+        AppStatus* status = &status_buf[i];
+        RTOS_ERROR_CHECK(xQueueSendToBack(app.status_queue, &status, 0));
+    }
     // init tasks
     RTOS_ERROR_CHECK(xTaskCreatePinnedToCore(
             monitor_loop, "monitor_loop", 3 * 2048, &app, 1, &app.monitor_task, 0));
