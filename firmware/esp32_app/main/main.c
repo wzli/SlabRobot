@@ -375,8 +375,9 @@ static esp_err_t motors_feedback_update(App* app) {
         }
         // check for motor errors (excluding endstop reached)
         if ((odrives[i].updates.heartbeat &&
-                    (odrives[i].heartbeat.axis_error & ~ODRIVE_AXIS_ERROR_MIN_ENDSTOP_PRESSED &
-                            ~ODRIVE_AXIS_ERROR_MAX_ENDSTOP_PRESSED)) ||
+                    (odrives[i].heartbeat.axis_error & ~ODRIVE_AXIS_ERROR_WATCHDOG_TIMER_EXPIRED,
+                            ~ODRIVE_AXIS_ERROR_MIN_ENDSTOP_PRESSED &
+                                    ~ODRIVE_AXIS_ERROR_MAX_ENDSTOP_PRESSED)) ||
                 (odrives[i].updates.motor_error && odrives[i].motor_error) ||
                 (odrives[i].updates.encoder_error && odrives[i].encoder_error)) {
             app->status.error.flags.motor_error = true;
