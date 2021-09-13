@@ -137,29 +137,29 @@ MXGEN(struct, ODriveStatus)
 MXGEN(union, MotorStatus)
 
 #define TYPEDEF_AppStatus(X, _)                     \
+    X(double, timestamp, )                          \
+    X(Slab, slab, )                                 \
     X(CanStatus, can, )                             \
     X(MotorStatus, motors, [N_MOTORS])              \
     X(ErrorCounter, motor_comms_missed, [N_MOTORS]) \
     X(ErrorCounter, imu_comms_missed, )             \
     X(GamepadMsg, gamepad, )                        \
-    X(uint32_t, gamepad_timestamp, )                \
+    X(uint32_t, gamepad_tick, )                     \
     X(AppError, error, )
 MXGEN(struct, AppStatus)
 
 typedef struct Imu Imu;
 
-#define TYPEDEF_App(X, _)               \
-    X(double, timestamp, )              \
-    _(uint64_t, led_pattern, )          \
-    _(int32_t, dir_idx, )               \
-    _(TaskHandle_t, control_task, )     \
-    _(TaskHandle_t, monitor_task, )     \
-    _(TimerHandle_t, heartbeat_timer, ) \
-    _(TimerHandle_t, homing_timer, )    \
-    _(Imu*, imu, )                      \
-    X(Slab, slab, )                     \
-    X(AppStatus, status, )
-MXGEN(struct, App)
+typedef struct {
+    uint64_t led_pattern;
+    int32_t dir_idx;
+    TaskHandle_t control_task;
+    TaskHandle_t monitor_task;
+    TimerHandle_t heartbeat_timer;
+    TimerHandle_t homing_timer;
+    Imu* imu;
+    AppStatus status;
+} App;
 
 //------------------------------------------------------------------------------
 // helper functions
@@ -280,9 +280,10 @@ static void motors_homing_complete_callback(
     // reset homing required error when state transitions from HOMING to IDLE
     if (old_state == ODRIVE_AXIS_STATE_HOMING && new_state == ODRIVE_AXIS_STATE_IDLE) {
         app->status.error.code &= ~(1 << axis_id);
-        app->slab.input.leg_positions[axis_id] = -M_PI;
-        app->slab.motors[axis_id].input = (MotorInput){-M_PI, 0, 0, MOTOR_CONTROL_MODE_POSITION};
-        app->slab.motors[axis_id].estimate = (MotorEstimate){-M_PI, 0};
+        app->status.slab.input.leg_positions[axis_id] = -M_PI;
+        app->status.slab.motors[axis_id].input =
+                (MotorInput){-M_PI, 0, 0, MOTOR_CONTROL_MODE_POSITION};
+        app->status.slab.motors[axis_id].estimate = (MotorEstimate){-M_PI, 0};
         ps3_gamepad_led_update(app->status.error);
     }
 }
@@ -305,7 +306,7 @@ static void motors_homing_timeout_callback(TimerHandle_t timer) {
 static void motors_input_update(App* app) {
     for (int i = 0; i < N_MOTORS; ++i) {
         const ODriveStatus* odrive = &app->status.motors[i].status;
-        const MotorMsg* motor = &app->slab.motors[i];
+        const MotorMsg* motor = &app->status.slab.motors[i];
         // clear endstop errors if the command is in the centering direction
         if ((odrive->axis_error == ODRIVE_AXIS_ERROR_MIN_ENDSTOP_PRESSED &&
                     motor->input.position >= motor->estimate.position &&
@@ -379,9 +380,9 @@ static esp_err_t motors_feedback_update(App* app) {
         // convert odrive interface to motor interface
         // change cycles to radians then scale by gear ratio
         if (odrives[i].updates.encoder_estimates) {
-            app->slab.motors[i].estimate.position =
+            app->status.slab.motors[i].estimate.position =
                     2 * M_PI * odrives[i].encoder_estimates.position / MOTOR_GEAR_RATIOS[i] - M_PI;
-            app->slab.motors[i].estimate.velocity =
+            app->status.slab.motors[i].estimate.velocity =
                     2 * M_PI * odrives[i].encoder_estimates.velocity / MOTOR_GEAR_RATIOS[i];
         }
     }
@@ -452,7 +453,7 @@ static void ps3_gamepad_callback(void* pvParameters, ps3_t ps3_state, ps3_event_
     gamepad->left_trigger = ps3_state.analog.button.l2;
     gamepad->right_trigger = ps3_state.analog.button.r2;
     // update timestamp
-    app->status.gamepad_timestamp = xTaskGetTickCount();
+    app->status.gamepad_tick = xTaskGetTickCount();
     // flip balance trigger
     gamepad->buttons ^= GAMEPAD_BUTTON_L1;
 }
@@ -479,23 +480,23 @@ static void control_loop(void* pvParameters) {
         // fetch imu updates
         app->status.error.flags.imu_comms_timeout =
                 error_counter_update(&app->status.imu_comms_missed,
-                        !imu_read(app->imu, &app->slab.imu)) > IMU_COMMS_TIMEOUT_TICKS;
+                        !imu_read(app->imu, &app->status.slab.imu)) > IMU_COMMS_TIMEOUT_TICKS;
         // reset accelerometer and gyro readings on timeout
         if (app->status.error.flags.imu_comms_timeout) {
-            app->slab.imu.linear_acceleration = (Vector3F){0};
-            app->slab.imu.angular_velocity = (Vector3F){0};
+            app->status.slab.imu.linear_acceleration = (Vector3F){0};
+            app->status.slab.imu.angular_velocity = (Vector3F){0};
         }
         // check for received gamepad message on UDP port
         if (recv(sock, rx_buf, sizeof(rx_buf), 0) == 8) {
             GamepadMsg_deserialize(&app->status.gamepad, rx_buf);
             // update timestamp
-            app->status.gamepad_timestamp = xTaskGetTickCount();
+            app->status.gamepad_tick = xTaskGetTickCount();
             // flip balance trigger
             app->status.gamepad.buttons ^= GAMEPAD_BUTTON_L1;
         }
         // detect gamepad communication timeout
         app->status.error.flags.gamepad_comms_timeout =
-                tick > app->status.gamepad_timestamp + GAMEPAD_COMMS_TIMEOUT_TICKS;
+                tick > app->status.gamepad_tick + GAMEPAD_COMMS_TIMEOUT_TICKS;
         // reset gamepad input on timeout
         if (app->status.error.flags.gamepad_comms_timeout) {
             app->status.gamepad = (GamepadMsg){0};
@@ -530,9 +531,9 @@ static void control_loop(void* pvParameters) {
         }
         // run control logic only when error-free
         else {
-            app->slab.timestamp = (double) tick / configTICK_RATE_HZ;
-            slab_gamepad_input_update(&app->slab, &app->status.gamepad);
-            slab_update(&app->slab);
+            app->status.slab.timestamp = (double) tick / configTICK_RATE_HZ;
+            slab_gamepad_input_update(&app->status.slab, &app->status.gamepad);
+            slab_update(&app->status.slab);
             motors_input_update(app);
         }
     }
@@ -550,7 +551,7 @@ static void monitor_loop(void* pvParameters) {
         sprintf(text_buf, "slab%d/%s", app->dir_idx, "data.csv");
         // write csv header row if file was successfully created
         if ((csv_log = file_create(text_buf))) {
-            int len = App_to_csv_header(0, text_buf);
+            int len = AppStatus_to_csv_header(0, text_buf);
             ESP_ERROR_CHECK_WITHOUT_ABORT(f_write_line(csv_log, text_buf, len));
             ESP_ERROR_CHECK_WITHOUT_ABORT(f_sync(csv_log));
         }
@@ -568,15 +569,15 @@ static void monitor_loop(void* pvParameters) {
 
     // monitor loops at a lower frequency
     for (TickType_t tick = xTaskGetTickCount();; vTaskDelayUntil(&tick, 5)) {
-        app->timestamp = (double) tick / configTICK_RATE_HZ;
+        app->status.timestamp = (double) tick / configTICK_RATE_HZ;
         // update can status
         ESP_ERROR_CHECK(twai_get_status_info((twai_status_info_t*) &app->status.can));
         // print app data to uart
-        int buf_len = App_to_json(app, text_buf);
+        int buf_len = AppStatus_to_json(&app->status, text_buf);
         sendto(sock, text_buf, buf_len, 0, (struct sockaddr*) &DST_ADDR, sizeof(DST_ADDR));
         // log app status as csv entry
         if (csv_log) {
-            int len = App_to_csv_entry(app, text_buf);
+            int len = AppStatus_to_csv_entry(&app->status, text_buf);
             ESP_ERROR_CHECK_WITHOUT_ABORT(f_write_line(csv_log, text_buf, len));
             ESP_ERROR_CHECK_WITHOUT_ABORT(f_sync(csv_log));
         }
@@ -607,7 +608,7 @@ static esp_err_t config_request_handler(httpd_req_t* req) {
 
 static esp_err_t status_request_handler(httpd_req_t* req) {
     char text_buf[4096];
-    int len = App_to_json(req->user_ctx, text_buf);
+    int len = AppStatus_to_json(req->user_ctx, text_buf);
     assert(len < sizeof(text_buf));
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
@@ -717,8 +718,8 @@ static void sdcard_init() {
 
 static void httpd_init(App* app) {
 #define SET_PARAM_URI(PARAM) \
-    {"/" #PARAM, HTTP_GET, config_request_handler, &app->slab.config.PARAM}
-    slab_config = &app->slab.config;
+    {"/" #PARAM, HTTP_GET, config_request_handler, &app->status.slab.config.PARAM}
+    slab_config = &app->status.slab.config;
     char* index_page = malloc(1024);
     httpd_uri_t uris[] = {
             SET_PARAM_URI(ground_rise_threshold),
@@ -727,7 +728,7 @@ static void httpd_init(App* app) {
             SET_PARAM_URI(speed_p_gain),
             SET_PARAM_URI(speed_i_gain),
             {"/config", HTTP_GET, config_request_handler, NULL},
-            {"/status", HTTP_GET, status_request_handler, app},
+            {"/status", HTTP_GET, status_request_handler, &app->status},
             {"/tasks", HTTP_GET, tasks_request_handler, NULL},
             {"/", HTTP_GET, index_request_handler, index_page},
     };
@@ -757,7 +758,7 @@ void app_main(void) {
     sdcard_init();
     // init app
     static App app = {0};
-    app.slab.config = SLAB_CONFIG;
+    app.status.slab.config = SLAB_CONFIG;
     app.imu = imu_create();
     motors_init(&app);
     httpd_init(&app);
@@ -766,9 +767,9 @@ void app_main(void) {
     app.dir_idx = dir_create("slab");
     // init tasks
     RTOS_ERROR_CHECK(xTaskCreatePinnedToCore(
-            monitor_loop, "monitor_loop", 2 * 2048, &app, 1, &app.monitor_task, 0));
+            monitor_loop, "monitor_loop", 3 * 2048, &app, 1, &app.monitor_task, 0));
     RTOS_ERROR_CHECK(xTaskCreatePinnedToCore(
-            control_loop, "control_loop", 2 * 2048, &app, 9, &app.control_task, 1));
+            control_loop, "control_loop", 3 * 2048, &app, 9, &app.control_task, 1));
     app.heartbeat_timer = xTimerCreate(
             "heartbeat_timer", LED_HEARTBEAT_DOT_TICKS, true, &app, led_heartbeat_callback);
     assert(app.heartbeat_timer);
