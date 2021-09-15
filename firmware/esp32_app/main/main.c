@@ -264,7 +264,7 @@ static void ps3_gamepad_led_update(AppError app_error) {
 }
 
 static void motors_homing_request(App* app) {
-    for (int i = 0; i < 2; ++i) {
+    for (int i = 1; i < 2; ++i) {
         // only send request if homing required and not already homing
         static const uint32_t state = ODRIVE_AXIS_STATE_HOMING;
         if (app->status.error.code & (1 << i) &&
@@ -294,7 +294,7 @@ static void motors_homing_complete_callback(
 
 static void motors_homing_timeout_callback(TimerHandle_t timer) {
     App* app = (App*) pvTimerGetTimerID(timer);
-    for (int i = 0; i < 2; ++i) {
+    for (int i = 1; i < 2; ++i) {
         // assume that homing is complete if there are no errors after a timeout
         // this is required because homing complete callback won't trigger if motors start homed
         const ODriveStatus* odrive = &app->status.motors[i].status;
@@ -308,7 +308,7 @@ static void motors_homing_timeout_callback(TimerHandle_t timer) {
 }
 
 static void motors_input_update(App* app) {
-    for (int i = 0; i < N_MOTORS; ++i) {
+    for (int i = 1; i < N_MOTORS; ++i) {
         const ODriveStatus* odrive = &app->status.motors[i].status;
         const MotorMsg* motor = &app->status.slab.motors[i];
         // clear endstop errors if the command is in the centering direction
@@ -356,13 +356,13 @@ static void motors_input_update(App* app) {
 static esp_err_t motors_feedback_update(App* app) {
     ODriveAxis* odrives = &app->status.motors->odrive;
     // clear updates flags
-    for (int i = 0; i < N_MOTORS; ++i) {
+    for (int i = 1; i < N_MOTORS; ++i) {
         odrives[i].updates = (ODriveUpdates){0};
     }
     // fetch updates
     esp_err_t rx_error = odrive_receive_updates(odrives, N_MOTORS);
     app->status.error.flags.motor_comms_timeout = false;
-    for (int i = 0; i < N_MOTORS; ++i) {
+    for (int i = 1; i < N_MOTORS; ++i) {
         // check for motor comms timeout
         const uint8_t* updated = (uint8_t*) &odrives[i].updates;
         if (error_counter_update(&app->status.motor_comms_missed[i], *updated == 0) >
@@ -404,7 +404,7 @@ static esp_err_t motors_error_request(uint32_t tick) {
 static void motors_clear_errors(App* app) {
     app->status.error.flags.motor_error = false;
     app->status.error.flags.can_error = false;
-    for (int i = 0; i < N_MOTORS; ++i) {
+    for (int i = 1; i < N_MOTORS; ++i) {
         CAN_ERROR_CHECK(app, odrive_send_command(i, ODRIVE_CMD_CLEAR_ERRORS, NULL, 0));
     }
 }
@@ -414,7 +414,7 @@ static void motors_init(App* app) {
     // wait for errors to clear
     vTaskDelay(1);
     // homing is required for legs only
-    for (int i = 0; i < 2; ++i) {
+    for (int i = 1; i < 2; ++i) {
         app->status.error.code |= 1 << i;
         app->status.motors[i].odrive.state_transition_callback = motors_homing_complete_callback;
         app->status.motors[i].odrive.state_transition_context = app;
@@ -525,7 +525,7 @@ static void control_loop(void* pvParameters) {
         }
         // request idle state if there is an error
         if (app->status.error.code) {
-            for (int i = 0; i < N_MOTORS; ++i) {
+            for (int i = 1; i < N_MOTORS; ++i) {
                 if (app->status.motors[i].status.axis_state ==
                         ODRIVE_AXIS_STATE_CLOSED_LOOP_CONTROL) {
                     static const uint32_t state = ODRIVE_AXIS_STATE_IDLE;
