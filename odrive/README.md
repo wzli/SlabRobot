@@ -110,9 +110,11 @@ Units are revolutions/second. This can be calculated approximaty `0.7 * supply v
   1. Set `odrv0.axis0.controller.config.vel_integrator_gain = 0`
   2. Bump up `odrv0.axis0.controller.config.vel_gain` to the point where there is ossilation the back down a bit.
   3. Bump up `odrv0.axis0.controller.config.vel_integrator_gain` until there is overshoot then back down a bit.
+- Tune encoder bandwidth by sending velocity setpoints and viewing that the velocity feedback isn't too noisy. Sometimes might have to have high bandwith to prevent spinout even though there is noise.
 - Tune position control loop by sending position setpoints and live ploting the feedback.
   - Bump up `odrv0.axis0.controller.config.pos_gain` until there is overshoot then back down a bit.
   - Make sure that the setpoint is not too far away from current `odrv0.axis0.encoder.pos_estimate`, otherwise the error compensation will be really large and the controller will send unrealistic velocities.
+
 
 
 ## Reference Configurations
@@ -181,6 +183,12 @@ resistance_calib_max_voltage < 0.5 * vbus_voltage
 ### ILLEGAL_SENSOR_STATE
 It could be noise on the encoder lines that can be fixed by adding 47nF caps see [here](https://discourse.odriverobotics.com/t/encoder-error-error-illegal-hall-state/1047/7?u=madcowswe).
 Also it could be the hall states are not what the firmware expects because older versions have hall states hardcoded. This is the case with the BDUAV6384 motors. Update to `>= fw-v0.5.2` to pull in the hall state detection routine to fix.
+
+### AXIS_STATE_CLOSED_LOOP_CONTROL requested but idles without any errors
+Last time I encountered this, the fix was to erase configuration and redo the setup proceedure. Restoring old config does not work.
+
+### MOTOR_ERROR_UNKNOWN_TORQUE & MOTOR_ERROR_UNKNOWN_VOLTAGE_COMMAND & CONTROLLER_ERROR_SPINOUT_DETECTED
+Encoder bandwidth is too low, and position estimates cannot keep with fact jerks and impacts.
 
 # Common Commands
 
