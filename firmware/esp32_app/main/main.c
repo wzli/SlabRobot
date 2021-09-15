@@ -159,7 +159,8 @@ typedef struct {
     TaskHandle_t telemetry_task;
     TimerHandle_t heartbeat_timer;
     TimerHandle_t homing_timer;
-    QueueHandle_t status_queue;
+    QueueHandle_t status_in_queue;
+    QueueHandle_t status_out_queue;
     Imu* imu;
     AppStatus status;
 } App;
@@ -374,8 +375,9 @@ static esp_err_t motors_feedback_update(App* app) {
         }
         // check for motor errors (excluding endstop reached)
         if ((odrives[i].updates.heartbeat &&
-                    (odrives[i].heartbeat.axis_error & ~ODRIVE_AXIS_ERROR_MIN_ENDSTOP_PRESSED &
-                            ~ODRIVE_AXIS_ERROR_MAX_ENDSTOP_PRESSED)) ||
+                    (odrives[i].heartbeat.axis_error & ~ODRIVE_AXIS_ERROR_WATCHDOG_TIMER_EXPIRED,
+                            ~ODRIVE_AXIS_ERROR_MIN_ENDSTOP_PRESSED &
+                                    ~ODRIVE_AXIS_ERROR_MAX_ENDSTOP_PRESSED)) ||
                 (odrives[i].updates.motor_error && odrives[i].motor_error) ||
                 (odrives[i].updates.encoder_error && odrives[i].encoder_error)) {
             app->status.error.flags.motor_error = true;
@@ -542,12 +544,12 @@ static void control_loop(void* pvParameters) {
         app->status.timestamp = (double) tick / configTICK_RATE_HZ;
         // append status to queue
         AppStatus* status;
-        if (pdTRUE == xQueueReceive(app->status_queue, &status, 0)) {
+        if (pdTRUE == xQueueReceive(app->status_in_queue, &status, 0)) {
             // update can status
             ESP_ERROR_CHECK(twai_get_status_info((twai_status_info_t*) &app->status.can));
             // copy current status to queue
             *status = app->status;
-            RTOS_ERROR_CHECK(xQueueSendToBack(app->status_queue, &status, 0));
+            RTOS_ERROR_CHECK(xQueueSendToBack(app->status_out_queue, &status, 0));
         };
     }
 }
@@ -580,13 +582,16 @@ static void telemetry_loop(void* pvParameters) {
     ESP_ERROR_CHECK(setsockopt(sock, SOL_SOCKET, SO_BROADCAST, (char*) &val, sizeof(val)));
     ESP_LOGI(pcTaskGetName(NULL), "UDP broadcast on port %u", UDP_OUT_PORT);
 
+    static AppStatus status_buf;
+    static AppStatus* status = &status_buf;
     // telemetry loops at a lower frequency
     for (TickType_t tick = xTaskGetTickCount();;
             vTaskDelayUntil(&tick, TELEMETRY_TASK_INTERVAL_TICKS)) {
-        AppStatus* status;
-        if (pdFALSE == xQueueReceive(app->status_queue, &status, TELEMETRY_TASK_INTERVAL_TICKS)) {
-            continue;
-        }
+        // queue status buffer to be written
+        RTOS_ERROR_CHECK(xQueueSendToBack(app->status_in_queue, &status, 0));
+        // fetch status buffer
+        RTOS_ERROR_CHECK(
+                xQueueReceive(app->status_out_queue, &status, TELEMETRY_TASK_INTERVAL_TICKS));
         // broadcast app data over UDP
         int buf_len = AppStatus_to_json(status, text_buf);
         sendto(sock, text_buf, buf_len, 0, (struct sockaddr*) &DST_ADDR, sizeof(DST_ADDR));
@@ -596,7 +601,6 @@ static void telemetry_loop(void* pvParameters) {
             ESP_ERROR_CHECK_WITHOUT_ABORT(f_write_line(csv_log, text_buf, len));
             ESP_ERROR_CHECK_WITHOUT_ABORT(f_sync(csv_log));
         }
-        RTOS_ERROR_CHECK(xQueueSendToBack(app->status_queue, &status, 0));
     }
 }
 
@@ -623,8 +627,13 @@ static esp_err_t config_request_handler(httpd_req_t* req) {
 }
 
 static esp_err_t status_request_handler(httpd_req_t* req) {
+    App* app = (App*) req->user_ctx;
+    static AppStatus status_buf;
+    static AppStatus* status = &status_buf;
+    RTOS_ERROR_CHECK(xQueueSendToBack(app->status_in_queue, &status, 0));
+    RTOS_ERROR_CHECK(xQueueReceive(app->status_out_queue, &status, TELEMETRY_TASK_INTERVAL_TICKS));
     char text_buf[4096];
-    int len = AppStatus_to_json(req->user_ctx, text_buf);
+    int len = AppStatus_to_json(status, text_buf);
     assert(len < sizeof(text_buf));
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
@@ -744,7 +753,7 @@ static void httpd_init(App* app) {
             SET_PARAM_URI(speed_p_gain),
             SET_PARAM_URI(speed_i_gain),
             {"/config", HTTP_GET, config_request_handler, NULL},
-            {"/status", HTTP_GET, status_request_handler, &app->status},
+            {"/status", HTTP_GET, status_request_handler, app},
             {"/tasks", HTTP_GET, tasks_request_handler, NULL},
             {"/", HTTP_GET, index_request_handler, index_page},
     };
@@ -781,11 +790,8 @@ void app_main(void) {
     ps3SetEventObjectCallback(&app, ps3_gamepad_callback);
     esp_log_level_set("PS3_L2CAP", ESP_LOG_WARN);
     app.dir_idx = dir_create("slab");
-    // init status queue
-    app.status_queue = xQueueCreate(1, sizeof(void*));
-    static AppStatus status_buf;
-    AppStatus* status = &status_buf;
-    RTOS_ERROR_CHECK(xQueueSendToBack(app.status_queue, &status, 0));
+    app.status_in_queue = xQueueCreate(2, sizeof(AppStatus*));
+    app.status_out_queue = xQueueCreate(2, sizeof(AppStatus*));
     // init tasks
     RTOS_ERROR_CHECK(xTaskCreatePinnedToCore(
             telemetry_loop, "telemetry_loop", 3 * 2048, &app, 1, &app.telemetry_task, 0));
