@@ -64,7 +64,7 @@ static const SlabConfig SLAB_CONFIG = {
         .joystick_threshold = 10,       // 0 - 255
         .ground_rise_threshold = 0.08,  // m
         .ground_fall_threshold = 0.04,  // m
-        .incline_p_gain = 65.0f,
+        .incline_p_gain = 100.0f,
         .speed_p_gain = 0.3f,
         .speed_i_gain = 0.0005f,
 };
@@ -375,9 +375,9 @@ static esp_err_t motors_feedback_update(App* app) {
         }
         // check for motor errors (excluding endstop reached)
         if ((odrives[i].updates.heartbeat &&
-                    (odrives[i].heartbeat.axis_error & ~ODRIVE_AXIS_ERROR_WATCHDOG_TIMER_EXPIRED,
+                    (odrives[i].heartbeat.axis_error & ~ODRIVE_AXIS_ERROR_WATCHDOG_TIMER_EXPIRED &
                             ~ODRIVE_AXIS_ERROR_MIN_ENDSTOP_PRESSED &
-                                    ~ODRIVE_AXIS_ERROR_MAX_ENDSTOP_PRESSED)) ||
+                            ~ODRIVE_AXIS_ERROR_MAX_ENDSTOP_PRESSED)) ||
                 (odrives[i].updates.motor_error && odrives[i].motor_error) ||
                 (odrives[i].updates.encoder_error && odrives[i].encoder_error)) {
             app->status.error.flags.motor_error = true;
