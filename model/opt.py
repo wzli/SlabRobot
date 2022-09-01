@@ -10,19 +10,19 @@ l_c, l_b, l_f, m_c, m_b, m_bl, m_bw, m_f, m_fl, m_fw, g = sp.symbols(
 
 # input vector
 u_x, u_b, u_f = sp.symbols("u_x u_b u_f", real=True)
-u = Matrix([u_x, 0, 0, u_b, u_f])
+u = Matrix([u_x, u_b, u_f, 0])
 
 # state vector
-x, y, z_c, z_b, z_f = sp.symbols("x y z_c z_b z_f", real=True)
-q = Matrix([x, y, z_c, z_b, z_f])
+x, z_b, z_f, z_c = sp.symbols("x z_b z_f z_c", real=True)
+q = Matrix([x, z_b, z_f, z_c])
 
 # state derivative vector
-dx, dy, dz_c, dz_b, dz_f = sp.symbols("dx dy dz_c dz_b dz_f", real=True)
-dq = Matrix([dx, dy, dz_c, dz_b, dz_f])
+dx, dz_b, dz_f, dz_c = sp.symbols("dx dz_b dz_f dz_c", real=True)
+dq = Matrix([dx, dz_b, dz_f, dz_c])
 
 # state double derivative vector
-ddx, ddy, ddz_c, ddz_b, ddz_f = sp.symbols("ddx ddy ddz_c ddz_b ddz_f", real=True)
-ddq = Matrix([ddx, ddy, ddz_c, ddz_b, ddz_f])
+ddx, ddz_b, ddz_f, ddz_c = sp.symbols("ddx ddz_b ddz_f ddz_c", real=True)
+ddq = Matrix([ddx, ddz_b, ddz_f, ddz_c])
 
 
 def rot(a):
@@ -30,7 +30,7 @@ def rot(a):
 
 
 # position
-p_bw = Matrix([x, y])
+p_bw = Matrix([x, 0])
 p_b = p_bw + rot(z_c + z_b) * Matrix([l_b, 0])
 p_f = p_b + rot(z_c) * Matrix([l_c, 0])
 p_fw = p_f + rot(z_c + z_f) * Matrix([l_f, 0])
@@ -76,6 +76,22 @@ dL_by_ddq = L.jacobian(dq)
 by_dt = (dL_by_ddq.jacobian(q) * dq) + (dL_by_ddq.jacobian(dq) * ddq)
 euler_lagrange = dL_by_dq - by_dt + u
 
+s_c, c_c, s_cb, c_cb, s_cf, c_cf = sp.symbols("s_c c_c s_cb c_cb s_cf c_cf", real=True)
+euler_lagrange = euler_lagrange.subs(
+    {
+        sp.sin(z_c): s_c,
+        sp.cos(z_c): c_c,
+        sp.sin(z_c + z_b): s_cb,
+        sp.cos(z_c + z_b): c_cb,
+        sp.sin(z_c + z_f): s_cf,
+        sp.cos(z_c + z_f): c_cf,
+    }
+)
+
+euler_lagrange = euler_lagrange.subs({m_c: 0, m_bl: 0, m_fl: 0})
+
+euler_lagrange.simplify()
+print(euler_lagrange)
 # solve the lagrange equation for qddot and simplify
 print("Calculations take a while...")
 euler_lagrange.simplify()
@@ -85,8 +101,8 @@ for e in sol:
     e.simplify()
 
 print(sol)
-
 """
+
 subs = {
     l_c: 0.4,
     l_b: 0.35,
